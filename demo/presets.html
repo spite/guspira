@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Guspira — Presets</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="../css/gui.css" />
+    <link rel="stylesheet" href="../css/site.css" />
+  </head>
+  <body>
+    <header class="page-head">
+      <a class="back" href="./">← all demos</a>
+      <h1>Presets</h1>
+      <p>Built-in presets are partial — they say only what they change. Saved presets are full snapshots in localStorage, and the same JSON goes out to a file and comes back in.</p>
+    </header>
+    <main class="demo">
+      <section class="stage">
+        <div>
+          <h2>Current state</h2>
+          <div class="readout" id="state"></div>
+        </div>
+        <div>
+          <h2>Log</h2>
+          <div class="readout log" id="log"></div>
+        </div>
+        <div class="note">
+          <strong>Try:</strong> pick a built-in preset, nudge a slider, type a name and save it. Export
+          it to a file, delete it, then import the file back. The preview square is drawn from the same
+          signals the panel writes.
+        </div>
+      </section>
+      <aside id="gui-container"></aside>
+    </main>
+    <script type="module" src="./presets.js"></script>
+    <footer>
+      <span><a href="../">Guspira</a> · <a href="./">all demos</a></span>
+      <span><a href="https://github.com/spite/guspira">GitHub</a> · MIT © Jaume Sanchez Elias</span>
+    </footer>
+    <script type="module" src="../theme.js"></script>
+  </body>
+</html>

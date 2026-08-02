@@ -1,0 +1,91 @@
+// Checks that every public export and every panel method is actually shown somewhere in
+// demo/ or on the landing page. Documentation drifts; a test doesn't.
+//
+// Anything genuinely not demonstrable goes in ALLOWED with the reason, so the exception is
+// a decision on the record rather than a gap nobody noticed.
+
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+
+const ALLOWED = {
+  createRow: "shown via the custom controls in demo/extending.js, which call it through GUI.prototype",
+  RangeSlider: "the class itself; demo/range-slider.js uses the element it registers",
+};
+
+const read = (p) => readFileSync(p, "utf8");
+const root = new URL("..", import.meta.url).pathname;
+
+const examples = [
+  ...readdirSync(join(root, "demo"))
+    .filter((f) => f.endsWith(".js"))
+    .map((f) => read(join(root, "demo", f))),
+  read(join(root, "landing.js")),
+  read(join(root, "index.html")),
+  ...readdirSync(join(root, "demo"))
+    .filter((f) => f.endsWith(".html"))
+    .map((f) => read(join(root, "demo", f))),
+].join("\n");
+
+const gui = read(join(root, "src/gui.js"));
+const index = read(join(root, "src/index.js"));
+const guiCss = read(join(root, "css/gui.css"));
+const theming = read(join(root, "demo/theming.js"));
+
+const methods = [...gui.matchAll(/^ {2}([a-zA-Z][a-zA-Z0-9]*)\(/gm)]
+  .map((m) => m[1])
+  .filter((m) => m !== "constructor");
+
+const exports = [
+  ...index.matchAll(/export \{([^}]*)\} from/gs),
+]
+  .flatMap((m) => m[1].split(","))
+  .map((name) => name.trim().split(/\s+as\s+/).pop())
+  .filter(Boolean);
+
+const OPTIONS = [
+  "onChange", "disabled", "disabledWhen", "visible", "visibleWhen", "randomizable", "title",
+  "format", "placeholder",
+  "accept", "collapsible", "open", "storageKey", "className", "visible", "expanded",
+  "onBeforeRandomize", "migrate", "exclude", "url", "builtin", "lazy", "scheduler", "key",
+];
+
+let failures = 0;
+const check = (kind, names) => {
+  const missing = names.filter(
+    (name) => !ALLOWED[name] && !new RegExp(`\\b${name}\\b`).test(examples)
+  );
+  const skipped = names.filter((name) => ALLOWED[name]);
+  console.log(
+    `  ${missing.length ? "FAIL" : "ok  "} ${kind}: ${names.length - missing.length}/${names.length} demonstrated` +
+      (skipped.length ? ` (${skipped.length} allowed)` : "")
+  );
+  if (missing.length) {
+    console.log(`       not shown anywhere: ${missing.join(", ")}`);
+    failures++;
+  }
+};
+
+// The theming demo is the documentation for the custom properties, so it has to keep up
+// with them: a variable added to the stylesheet and not exposed there is invisible.
+const cssVars = [...new Set([...guiCss.matchAll(/(--gui-[a-z-]+):/g)].map((m) => m[1]))];
+const missingVars = cssVars.filter((v) => !theming.includes(v));
+console.log(
+  `  ${missingVars.length ? "FAIL" : "ok  "} theme variables: ${
+    cssVars.length - missingVars.length
+  }/${cssVars.length} shown in demo/theming.js`
+);
+if (missingVars.length) {
+  console.log(`       not exposed: ${missingVars.join(", ")}`);
+  failures++;
+}
+
+check("GUI methods", [...new Set(methods)]);
+check("public exports", [...new Set(exports)]);
+check("options", OPTIONS);
+
+for (const [name, reason] of Object.entries(ALLOWED)) {
+  console.log(`  --   ${name}: ${reason}`);
+}
+
+console.log(failures ? `\n${failures} FAILURES` : "\nevery public name appears in an example");
+process.exit(failures ? 1 : 0);

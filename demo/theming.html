@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Guspira — Theming</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="../css/gui.css" />
+    <link rel="stylesheet" href="../css/site.css" />
+  </head>
+  <body>
+    <header class="page-head">
+      <a class="back" href="./">← all demos</a>
+      <h1>Theming</h1>
+      <p>
+        Every custom property <code>css/gui.css</code> declares is on this panel — all 24 of
+        them, colours, font and metrics. A theme is an override, never a fork of the stylesheet,
+        and the variables reach the slider's shadow root too.
+      </p>
+    </header>
+    <main class="demo">
+      <section class="stage">
+        <div>
+          <h2>CSS being applied</h2>
+          <div class="codecard"><div class="bar"><i></i><i></i><i></i><span>theme.css</span></div><pre class="code" id="code"></pre></div>
+        </div>
+        <div class="note">
+          <strong>Try:</strong> the panel on the right restyles the panel on the right — it is editing the
+          custom properties on its own container, and the CSS beside it is what it wrote.
+          <em>Light theme</em> just adds the <code>gui-light</code> class, which is nothing but a
+          second set of the same variables. Shrink <code>--gui-max-height</code> and the panel starts
+          scrolling; widen <code>--gui-label-width</code> and every row's control column moves with it.
+        </div>
+      </section>
+      <aside id="gui-container"></aside>
+    </main>
+    <script type="module" src="./theming.js"></script>
+    <footer>
+      <span><a href="../">Guspira</a> · <a href="./">all demos</a></span>
+      <span><a href="https://github.com/spite/guspira">GitHub</a> · MIT © Jaume Sanchez Elias</span>
+    </footer>
+    <script type="module" src="../theme.js"></script>
+  </body>
+</html>

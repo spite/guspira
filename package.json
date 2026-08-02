@@ -1,0 +1,69 @@
+{
+  "name": "guspira",
+  "version": "0.1.0",
+  "description": "A reactive GUI toolkit for creative coding sketches \u2014 signals, sliders, tabs, presets.",
+  "type": "module",
+  "main": "./dist/guspira.js",
+  "module": "./dist/guspira.js",
+  "exports": {
+    ".": {
+      "import": "./src/index.js",
+      "default": "./dist/guspira.js"
+    },
+    "./gui": "./src/gui.js",
+    "./reactive": "./src/reactive.js",
+    "./format": "./src/format.js",
+    "./params": "./src/params.js",
+    "./color": "./src/color.js",
+    "./presets": "./src/presets.js",
+    "./keyboard": "./src/keyboard.js",
+    "./random": "./src/random.js",
+    "./range-slider": "./src/range-slider.js",
+    "./css/gui.css": "./css/gui.css",
+    "./dist/*": "./dist/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "css",
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": [
+    "./src/range-slider.js",
+    "./css/*"
+  ],
+  "scripts": {
+    "start": "npx --yes serve .",
+    "test": "node test/reactive.test.mjs && node test/params.test.mjs && node test/coverage.test.mjs && node test/pages.test.mjs",
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "prepublishOnly": "npm test && npm run build"
+  },
+  "keywords": [
+    "gui",
+    "signals",
+    "reactive",
+    "creative-coding",
+    "controls",
+    "slider",
+    "dat.gui",
+    "webgpu",
+    "webgl"
+  ],
+  "author": "Jaume Sanchez <the.spite@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/spite/guspira"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1"
+  },
+  "unpkg": "./dist/guspira.iife.min.js",
+  "jsdelivr": "./dist/guspira.iife.min.js"
+}

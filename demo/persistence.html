@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Guspira — Params &amp; persistence</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="../css/gui.css" />
+    <link rel="stylesheet" href="../css/site.css" />
+  </head>
+  <body>
+    <header class="page-head">
+      <a class="back" href="./">← all demos</a>
+      <h1>Params &amp; persistence</h1>
+      <p>createParams builds one signal per key from a defaults object. Those defaults are also the schema — they fix the key set and the type of every value, so a stale save or a hand-edited link cannot put a string where a number belongs.</p>
+    </header>
+    <main class="demo">
+      <section class="stage">
+        <div>
+          <h2>$snapshot()</h2>
+          <div class="readout" id="state"></div>
+        </div>
+        <div>
+          <h2>$toQuery() — a link to this exact state</h2>
+          <div class="readout" id="query"></div>
+        </div>
+        <div>
+          <h2>Log</h2>
+          <div class="readout log" id="log"></div>
+        </div>
+        <div class="note">
+          <strong>Try:</strong> change something and reload — it comes back. Then press
+          <em>Apply junk</em>: values of the wrong type and unknown keys are rejected, and the panel
+          does not move. <em>Copy link</em> puts the current state in the query string; opening that
+          link seeds the store from it.
+        </div>
+      </section>
+      <aside id="gui-container"></aside>
+    </main>
+    <script type="module" src="./persistence.js"></script>
+    <footer>
+      <span><a href="../">Guspira</a> · <a href="./">all demos</a></span>
+      <span><a href="https://github.com/spite/guspira">GitHub</a> · MIT © Jaume Sanchez Elias</span>
+    </footer>
+    <script type="module" src="../theme.js"></script>
+  </body>
+</html>

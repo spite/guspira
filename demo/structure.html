@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Guspira — Tabs &amp; sections</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="../css/gui.css" />
+    <link rel="stylesheet" href="../css/site.css" />
+  </head>
+  <body>
+    <header class="page-head">
+      <a class="back" href="./">← all demos</a>
+      <h1>Tabs &amp; sections</h1>
+      <p>Tabs and sections are imperative: open one and the controls that follow go into it. Sections fold on click, and with a storageKey the panel remembers which tab was open and what was folded.</p>
+    </header>
+    <main class="demo">
+      <section class="stage">
+        <div class="note">
+          <strong>Try:</strong> fold a section, switch to another tab, then reload the page — the panel
+          comes back the way you left it. The <em>Advanced</em> section only exists while
+          <em>Show advanced</em> is on, and <em>Attractor</em> follows the field selector.
+        </div>
+        <div>
+          <h2>Remembered layout (localStorage)</h2>
+          <div class="readout" id="state"></div>
+        </div>
+        <div class="codecard"><div class="bar"><i></i><i></i><i></i><span>panel.js</span></div><pre class="code" id="code"></pre></div>
+      </section>
+      <aside id="gui-container"></aside>
+    </main>
+    <script type="module" src="./structure.js"></script>
+    <footer>
+      <span><a href="../">Guspira</a> · <a href="./">all demos</a></span>
+      <span><a href="https://github.com/spite/guspira">GitHub</a> · MIT © Jaume Sanchez Elias</span>
+    </footer>
+    <script type="module" src="../theme.js"></script>
+  </body>
+</html>

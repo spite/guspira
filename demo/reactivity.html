@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Guspira — Reactivity</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="../css/gui.css" />
+    <link rel="stylesheet" href="../css/site.css" />
+  </head>
+  <body>
+    <header class="page-head">
+      <a class="back" href="./">← all demos</a>
+      <h1>Reactivity</h1>
+      <p>The signals layer on its own. src/reactive.js has no imports and no DOM dependency — the panel here just drives it, and every effect run is counted so you can see what actually re-ran.</p>
+    </header>
+    <main class="demo">
+      <section class="stage">
+        <div>
+          <h2>Values</h2>
+          <div class="readout" id="state"></div>
+        </div>
+        <div>
+          <h2>Effect runs</h2>
+          <div class="readout log" id="log"></div>
+        </div>
+        <div class="note">
+          <strong>Try:</strong> press <em>Write three signals</em> twice — once unbatched, once batched —
+          and compare how many times the effect ran. Then pause the rAF effect and drag a slider: the
+          runs stop, and resume catches up with exactly one.
+        </div>
+      </section>
+      <aside id="gui-container"></aside>
+    </main>
+    <script type="module" src="./reactivity.js"></script>
+    <footer>
+      <span><a href="../">Guspira</a> · <a href="./">all demos</a></span>
+      <span><a href="https://github.com/spite/guspira">GitHub</a> · MIT © Jaume Sanchez Elias</span>
+    </footer>
+    <script type="module" src="../theme.js"></script>
+  </body>
+</html>

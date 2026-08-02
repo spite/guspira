@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Guspira — &lt;range-slider&gt;</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="../css/gui.css" />
+    <link rel="stylesheet" href="../css/site.css" />
+  </head>
+  <body>
+    <header class="page-head">
+      <a class="back" href="./">← all demos</a>
+      <h1>&lt;range-slider&gt;</h1>
+      <p>The slider is a standalone form-associated custom element. No panel, no signals — this page uses it in a plain HTML form and reads it with the FormData API.</p>
+    </header>
+    <main class="demo">
+      <section class="stage">
+        <form id="form">
+          <h2>A plain form</h2>
+          <label>Single <range-slider name="single" min="0" max="1" step="0.01" value="0.4"></range-slider></label>
+          <label>Dual <range-slider name="dual" dual min="0" max="100" step="5" value="20,80"></range-slider></label>
+          <label>Stepped <range-slider name="stepped" min="0" max="10" step="0.25" value="2.5"></range-slider></label>
+          <label>Disabled <range-slider name="off" min="0" max="1" step="0.1" value="0.5" disabled></range-slider></label>
+        </form>
+        <div>
+          <h2>FormData</h2>
+          <div class="readout" id="state"></div>
+        </div>
+        <div>
+          <h2>Events</h2>
+          <div class="readout log" id="log"></div>
+        </div>
+        <div class="note">
+          <strong>Try:</strong> tab to a slider and use the arrow keys, <kbd>Page↑</kbd>/<kbd>Page↓</kbd>,
+          <kbd>Home</kbd>/<kbd>End</kbd>. On the dual slider, hold <kbd>Shift</kbd> to move the lower
+          handle. <code>input</code> fires while dragging, <code>change</code> on release.
+        </div>
+      </section>
+      <aside id="gui-container"></aside>
+    </main>
+    <script type="module" src="./range-slider.js"></script>
+    <footer>
+      <span><a href="../">Guspira</a> · <a href="./">all demos</a></span>
+      <span><a href="https://github.com/spite/guspira">GitHub</a> · MIT © Jaume Sanchez Elias</span>
+    </footer>
+    <script type="module" src="../theme.js"></script>
+  </body>
+</html>

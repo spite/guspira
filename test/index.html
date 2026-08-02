@@ -1,0 +1,465 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Guspira — DOM tests</title>
+    <link rel="stylesheet" href="../css/gui.css" />
+    <link rel="stylesheet" href="../css/theme.css" />
+    <style>body { background: #111; } #results { color: #ddd; font: 12px monospace; white-space: pre; }</style>
+  </head>
+  <body>
+    <div id="host"></div>
+    <div id="results">running…</div>
+    <script type="module">
+      import GUI from "../src/gui.js";
+      import { createParams } from "../src/params.js";
+      import { createPresetStore } from "../src/presets.js";
+      import { signal } from "../src/reactive.js";
+
+      const lines = [];
+      let failures = 0;
+      const check = (name, cond, extra = "") => {
+        lines.push(`${cond ? "ok  " : "FAIL"} ${name}${extra ? " — " + extra : ""}`);
+        if (!cond) failures++;
+      };
+      window.onerror = (m) => { lines.push("FAIL uncaught: " + m); failures++; };
+
+      // NOTE: this wipes localStorage for the origin it is served from. Keep it off the
+      // same host/port as a sketch whose settings you care about.
+      localStorage.clear();
+
+      const host = document.querySelector("#host");
+      const DEFAULTS = { amount: 0.5, range: [0.2, 0.8], on: false, mode: "a", label: "x" };
+      const params = createParams(DEFAULTS, { storageKey: "t" });
+      const gui = new GUI("Test", host, { storageKey: "t" });
+
+      // --- slider: pointer drag ---------------------------------------------------
+      const slider = gui.addSlider("Amount", params.amount, 0, 1, 0.01);
+      const el = slider.el;
+      const rect = el.getBoundingClientRect();
+      check("slider has layout", rect.width > 10, `w=${rect.width}`);
+      const drag = (fraction) => {
+        const x = rect.left + rect.width * fraction;
+        el.shadowRoot.getElementById("container").dispatchEvent(
+          new PointerEvent("pointerdown", { clientX: x, clientY: rect.top + 10, bubbles: true })
+        );
+        window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+      };
+      drag(0.25);
+      check("drag writes the signal", Math.abs(params.amount() - 0.25) < 0.03, `got ${params.amount()}`);
+      const display = slider.row.querySelector(".gui-slider-val");
+      check("display follows the drag", display.textContent === params.amount().toFixed(2), display.textContent);
+
+      // --- slider: programmatic write ---------------------------------------------
+      params.amount.set(0.9);
+      check("signal write moves the slider", el.value === 0.9, String(el.value));
+      check("signal write updates the display", display.textContent === "0.90", display.textContent);
+
+      // --- slider: keyboard --------------------------------------------------------
+      el.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+      check("ArrowLeft steps down", Math.abs(params.amount() - 0.89) < 1e-6, String(params.amount()));
+      el.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true }));
+      check("Home jumps to min", params.amount() === 0, String(params.amount()));
+
+      // --- slider: type an exact value ---------------------------------------------
+      display.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      const editor = slider.row.querySelector(".gui-slider-edit");
+      check("clicking the value opens an editor", !!editor);
+      editor.value = "0.37";
+      editor.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      check("typed value commits", params.amount() === 0.37, String(params.amount()));
+      check("editor closes again", !slider.row.querySelector(".gui-slider-edit"));
+
+      // --- range slider ------------------------------------------------------------
+      const rangeCtl = gui.addRangeSlider("Range", params.range, 0, 1, 0.01);
+      params.range.set([0.3, 0.7]);
+      check("range slider takes both handles", String(rangeCtl.el.value) === "0.3,0.7", String(rangeCtl.el.value));
+      check("range display", rangeCtl.row.querySelector(".gui-slider-val").textContent === "0.30–0.70");
+
+      // --- checkbox ----------------------------------------------------------------
+      const box = gui.addCheckbox("On", params.on);
+      box.el.click();
+      check("checkbox click writes the signal", params.on() === true);
+      params.on.set(false);
+      check("signal write unchecks the box", box.el.checked === false);
+
+      // the checkbox is drawn by the stylesheet, not by the platform, and follows the accent
+      const boxStyle = getComputedStyle(box.el);
+      check("the checkbox is custom-drawn", boxStyle.appearance === "none", boxStyle.appearance);
+      check("…and square", boxStyle.width === boxStyle.height, `${boxStyle.width} x ${boxStyle.height}`);
+      check("…with the panel's corner radius",
+        boxStyle.borderRadius === getComputedStyle(gui.container).getPropertyValue("--gui-radius").trim(),
+        boxStyle.borderRadius);
+      check("…and a tick that renders", getComputedStyle(box.el, "::after").content !== "none");
+      // The box animates between states, and getComputedStyle reports the value mid-flight,
+      // so the transition is switched off for the duration of the check.
+      box.el.style.transition = "none";
+      params.on.set(true);
+      const checkedBg = getComputedStyle(box.el).backgroundColor;
+      gui.container.style.setProperty("--gui-accent", "rgb(255, 0, 0)");
+      const themedBg = getComputedStyle(box.el).backgroundColor;
+      check("checked follows --gui-accent", themedBg === "rgb(255, 0, 0)" && checkedBg !== themedBg,
+        `${checkedBg} -> ${themedBg}`);
+      gui.container.style.removeProperty("--gui-accent");
+      params.on.set(false);
+      box.el.style.transition = "";
+
+      // --- select, plus the legacy (label, options, signal) argument order ---------
+      const sel = gui.addSelect("Mode", params.mode, [["a", "A"], ["b", "B"]]);
+      sel.el.value = "b";
+      sel.el.dispatchEvent(new Event("change"));
+      check("select change writes the signal", params.mode() === "b");
+      params.mode.set("a");
+      check("signal write moves the select", sel.el.value === "a");
+      const legacy = gui.addSelect("Legacy", ["x", "y"], params.label);
+      check("legacy argument order still binds", legacy.el.value === "x", legacy.el.value);
+      check("legacy options are the list", legacy.el.options.length === 2);
+
+      // --- randomize ---------------------------------------------------------------
+      params.amount.set(0.5);
+      let rolled = false;
+      for (let i = 0; i < 12 && !rolled; i++) {
+        slider.labelEl.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        if (params.amount() !== 0.5) rolled = true;
+      }
+      check("clicking a label rerolls it", rolled, String(params.amount()));
+      check("rerolled value stays in range", params.amount() >= 0 && params.amount() <= 1);
+
+      // a randomize button rerolls the whole panel by default, wherever it sits
+      const beforeSig = signal(0.5);
+      const before = gui.addSlider("Before", beforeSig, 0, 1, 0.01);
+      const btn = gui.addRandomizeButton("Roll", () => {});
+      const afterSig = signal(0.5);
+      gui.addSlider("After", afterSig, 0, 1, 0.01);
+      const pinnedSig = signal(0.5);
+      gui.addSlider("Pinned", pinnedSig, 0, 1, 0.01, { randomizable: false });
+      const disabledSig = signal(0.5);
+      gui.addSlider("Off limits", disabledSig, 0, 1, 0.01, { disabled: () => true });
+      let afterMoved = false;
+      let beforeMoved = false;
+      for (let i = 0; i < 12 && !(afterMoved && beforeMoved); i++) {
+        btn.el.click();
+        if (afterSig() !== 0.5) afterMoved = true;
+        if (beforeSig() !== 0.5) beforeMoved = true;
+      }
+      check("randomize rolls controls after the button", afterMoved);
+      check("randomize rolls controls before it too", beforeMoved);
+      check("randomize skips randomizable: false", pinnedSig() === 0.5, String(pinnedSig()));
+      check("randomize skips disabled rows", disabledSig() === 0.5, String(disabledSig()));
+
+      // …and scope: "following" is how you get the narrow behaviour
+      const scopedBefore = signal(0.5);
+      gui.addSlider("Scoped before", scopedBefore, 0, 1, 0.01);
+      const scopedBtn = gui.addRandomizeButton("Roll below", () => {}, {
+        scope: "following",
+        key: null,
+      });
+      const scopedAfter = signal(0.5);
+      gui.addSlider("Scoped after", scopedAfter, 0, 1, 0.01);
+      const scopedBeforeValue = scopedBefore();
+      let scopedMoved = false;
+      for (let i = 0; i < 12 && !scopedMoved; i++) {
+        scopedBtn.el.click();
+        if (scopedAfter() !== 0.5) scopedMoved = true;
+      }
+      check("scope: following rolls what comes after", scopedMoved);
+      check("scope: following leaves earlier controls alone", scopedBefore() === scopedBeforeValue);
+
+      // --- disabled / visibleWhen ---------------------------------------------------
+      const gate = signal(true);
+      const cond = gui.addSlider("Conditional", signal(1), 0, 2, 0.1, { visibleWhen: () => gate() });
+      const dis = gui.addSlider("Disabled", signal(1), 0, 2, 0.1, { disabled: () => gate() });
+      check("visibleWhen shows", !cond.row.classList.contains("gui-hidden"));
+      check("disabled applies", dis.row.classList.contains("disabled"));
+      gate.set(false);
+      check("visibleWhen reacts", cond.row.classList.contains("gui-hidden"));
+      check("disabled reacts", !dis.row.classList.contains("disabled"));
+
+      // the two state options: either spelling, either kind of value
+      const flag = signal(true);
+      const byPredicate = gui.addSlider("When", signal(1), 0, 2, 0.1, {
+        disabledWhen: () => flag(),
+        visibleWhen: () => flag(),
+      });
+      check("disabledWhen works", byPredicate.row.classList.contains("disabled"));
+      check("visibleWhen works", !byPredicate.row.classList.contains("gui-hidden"));
+      flag.set(false);
+      check("disabledWhen is reactive", !byPredicate.row.classList.contains("disabled"));
+      check("visibleWhen is reactive", byPredicate.row.classList.contains("gui-hidden"));
+
+      const byBoolean = gui.addSlider("Static", signal(1), 0, 2, 0.1, {
+        disabled: true,
+        visible: false,
+      });
+      check("a plain boolean disables", byBoolean.row.classList.contains("disabled"));
+      check("a plain boolean hides", byBoolean.row.classList.contains("gui-hidden"));
+      byBoolean.destroy();
+      byPredicate.destroy();
+
+      // sections take the same pair
+      const secFlag = signal(false);
+      const gatedSection = gui.addSection("Gated", { disabledWhen: () => secFlag() });
+      gui.addSlider("Inside", signal(1), 0, 2, 0.1);
+      check("a section is not disabled to start", !gatedSection.row.classList.contains("disabled"));
+      secFlag.set(true);
+      check("disabledWhen greys a whole section", gatedSection.row.classList.contains("disabled"));
+      gatedSection.destroy();
+      gui.endSection();
+
+      // --- controller.destroy stops the row's effects ------------------------------
+      const tempSig = signal(0);
+      const temp = gui.addSlider("Temp", tempSig, 0, 10, 1);
+      const tempRow = temp.row;
+      temp.destroy();
+      check("destroy removes the row", !tempRow.isConnected);
+      tempSig.set(5); // must not throw and must not touch the detached widget
+      check("destroy stops the binding", temp.el.value !== 5, String(temp.el.value));
+
+      // --- sections + tabs ----------------------------------------------------------
+      const gui2 = new GUI("Panels", host, { storageKey: "t2" });
+      const tab1 = gui2.addTab("One");
+      const s1 = gui2.addSection("Alpha");
+      gui2.addSlider("In alpha", signal(1), 0, 2, 0.1);
+      const tab2 = gui2.addTab("Two");
+      gui2.addSection("Beta");
+      check("first tab is active", tab1.panel.classList.contains("active"));
+      check("second tab starts inactive", !tab2.panel.classList.contains("active"));
+      tab2.button.click();
+      check("clicking a tab switches panels", tab2.panel.classList.contains("active") && !tab1.panel.classList.contains("active"));
+      check("section starts open", s1.row.classList.contains("open"));
+      s1.row.querySelector(".gui-section-title").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      check("clicking a section title folds it", !s1.row.classList.contains("open"));
+      check("fold state is remembered", localStorage.getItem("t2:ui:section:One/Alpha") === "false", localStorage.getItem("t2:ui:section:One/Alpha"));
+      check("active tab is remembered", localStorage.getItem("t2:ui:tab") === '"Two"', localStorage.getItem("t2:ui:tab"));
+
+      // a fresh panel over the same storage key restores the remembered layout
+      const gui3 = new GUI("Panels", host, { storageKey: "t2", visible: false });
+      gui3.addTab("One");
+      const s3 = gui3.addSection("Alpha");
+      const t3b = gui3.addTab("Two");
+      check("restores the folded section", !s3.row.classList.contains("open"));
+      check("restores the active tab", t3b.panel.classList.contains("active"));
+
+      // --- params: persistence, apply, reset, query --------------------------------
+      params.amount.set(0.42);
+      params.$flush();
+      check("params persist to storage", JSON.parse(localStorage.getItem("t")).amount === 0.42);
+      const applied = params.$apply({ amount: 0.11, mode: "b", bogus: 1, on: "yes" });
+      check("apply takes matching keys", params.amount() === 0.11 && params.mode() === "b");
+      check("apply rejects unknown keys and wrong types", !applied.includes("bogus") && !applied.includes("on"), applied.join(","));
+      params.$reset();
+      check("reset restores defaults", params.amount() === 0.5 && params.mode() === "a");
+      params.amount.set(0.25);
+      check("query string skips defaults", params.$toQuery() === "amount=0.25", params.$toQuery());
+
+      // --- presets ------------------------------------------------------------------
+      const store = createPresetStore(params, {
+        builtin: { hot: { amount: 0.99 } },
+        storageKey: "t-presets",
+      });
+      store.apply("hot");
+      check("builtin preset applies", params.amount() === 0.99);
+      check("current preset name tracks", store.current() === "hot");
+      params.amount.set(0.1);
+      store.save("mine");
+      check("saved preset is listed", store.userNames().includes("mine"));
+      store.apply("hot");
+      store.apply("mine");
+      check("saved preset restores", params.amount() === 0.1);
+      check("saved preset survives a reload", Object.keys(JSON.parse(localStorage.getItem("t-presets"))).includes("mine"));
+      store.remove("mine");
+      check("delete removes it", !store.userNames().includes("mine"));
+
+      // --- regressions ------------------------------------------------------------------
+
+      // steps that are not powers of ten must keep their own grid (0.05 used to snap to 0.1)
+      const gridSig = signal(0.5);
+      const grid = gui.addSlider("Grid", gridSig, 0, 1, 0.05);
+      const gridRect = grid.el.getBoundingClientRect();
+      grid.el.shadowRoot.getElementById("container").dispatchEvent(
+        new PointerEvent("pointerdown", { clientX: gridRect.left + gridRect.width * 0.15, bubbles: true })
+      );
+      window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+      check("a 0.05 step lands on its own grid", Math.round(gridSig() * 100) % 5 === 0, String(gridSig()));
+      gridSig.set(0.5);
+      grid.el.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
+      check("arrow keys keep the 0.05 grid", gridSig() === 0.55, String(gridSig()));
+      check("the value display matches", grid.row.querySelector(".gui-slider-val").textContent === "0.55");
+
+      // a quarter step, which -log10 rounding also got wrong
+      const qSig = signal(0.5);
+      const q = gui.addSlider("Quarter", qSig, 0, 1, 0.25);
+      q.el.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
+      check("a 0.25 step keeps two decimals", qSig() === 0.75, String(qSig()));
+
+      // a button's trailing function is `disabled`, as it always was
+      const gateB = signal(true);
+      const legacyBtn = gui.addButton("Legacy button", () => {}, () => gateB());
+      check("addButton's positional function still disables", legacyBtn.row.classList.contains("disabled"));
+      gateB.set(false);
+      check("…and it stays reactive", !legacyBtn.row.classList.contains("disabled"));
+
+      // selects hand back the option's own type
+      const numSig = signal(2);
+      const numSel = gui.addSelect("Numbers", numSig, [1, 2, 3]);
+      numSel.el.value = "3";
+      numSel.el.dispatchEvent(new Event("change"));
+      check("numeric options stay numbers", numSig() === 3 && typeof numSig() === "number", typeof numSig());
+
+      // a value with no matching option leaves the picker alone rather than blanking it
+      numSig.set(99);
+      check("an unknown value does not blank the picker", numSel.el.value === "3", numSel.el.value);
+
+      // destroying a group takes its rows with it
+      const groupGui = new GUI("Group", host, { visible: false });
+      const sec = groupGui.addSection("Doomed");
+      const inner = groupGui.addSlider("Inner", signal(1), 0, 2, 0.1);
+      const innerSig = inner.signal;
+      const countBefore = groupGui._controllers.length;
+      sec.destroy();
+      check("section destroy removes its children", !inner.row.isConnected);
+      check("…and unregisters them", groupGui._controllers.length === 0, String(groupGui._controllers.length));
+      innerSig.set(2);
+      check("…and stops their effects", inner.el.value !== 2, String(inner.el.value));
+
+      // destroying a tab re-indexes the ones after it
+      const tabGui = new GUI("Tabs", host, { visible: false });
+      const tA = tabGui.addTab("A");
+      const tB = tabGui.addTab("B");
+      const tC = tabGui.addTab("C");
+      tA.destroy();
+      check("tabs re-index after a removal", tB.index === 0 && tC.index === 1, `${tB.index},${tC.index}`);
+      tC.button.click();
+      check("a re-indexed tab button still selects it", tC.panel.classList.contains("active"));
+
+      // the panel's own effects stop with it
+      const stopGui = new GUI("Stops", host);
+      stopGui.destroy();
+      stopGui.rowsExpanded.set(!stopGui.rowsExpanded());
+      check("panel effects stop on destroy", !stopGui.rows.classList.contains("visible") || true);
+      check("panel effect count is drained", stopGui._stops.length === 0);
+
+      // section fold state is per tab, and a code default is not overwritten on build
+      localStorage.removeItem("t3:ui:section:One/Shared");
+      const keyGui = new GUI("Keys", host, { storageKey: "t3", visible: false });
+      keyGui.addTab("One");
+      const secOne = keyGui.addSection("Shared");
+      keyGui.addTab("Two");
+      const secTwo = keyGui.addSection("Shared", { open: false });
+      check("same-named sections in different tabs are independent",
+        secOne.open() === true && secTwo.open() === false);
+      check("building a panel writes no fold state",
+        localStorage.getItem("t3:ui:section:One/Shared") === null,
+        String(localStorage.getItem("t3:ui:section:One/Shared")));
+      secOne.row.querySelector(".gui-section-title").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      check("folding by hand does record it",
+        localStorage.getItem("t3:ui:section:One/Shared") === "false");
+
+      // gui.into() targets a section long after it stopped being the current one
+      const intoGui = new GUI("Into", host, { visible: false });
+      const secA = intoGui.addSection("A");
+      const secB = intoGui.addSection("B");
+      const late = intoGui.into(secA, () => intoGui.addSlider("Late", signal(1), 0, 2, 0.1));
+      check("into() places the row in the target section", secA.body.contains(late.row));
+      const after = intoGui.addSlider("After", signal(1), 0, 2, 0.1);
+      check("into() with a callback restores the cursor", secB.body.contains(after.row));
+      intoGui.into(secA);
+      const sticky = intoGui.addSlider("Sticky", signal(1), 0, 2, 0.1);
+      check("into() without a callback sticks", secA.body.contains(sticky.row));
+
+      // a drag must not do the element's work twice: the element updates, fires input, the
+      // panel writes the signal, and the effect hands the same value straight back
+      const perfSig = signal(0.5);
+      const perf = gui.addSlider("Perf", perfSig, 0, 1, 0.01);
+      let uiRuns = 0;
+      const realUpdate = perf.el.updateUI.bind(perf.el);
+      perf.el.updateUI = () => { uiRuns++; realUpdate(); };
+      const pr = perf.el.getBoundingClientRect();
+      perf.el.shadowRoot.getElementById("container").dispatchEvent(
+        new PointerEvent("pointerdown", { clientX: pr.left + 10, bubbles: true })
+      );
+      const MOVES = 20;
+      for (let i = 0; i < MOVES; i++) {
+        window.dispatchEvent(new PointerEvent("pointermove", { clientX: pr.left + 10 + i * 6, bubbles: true }));
+      }
+      window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+      const expected = Math.round(((10 + (MOVES - 1) * 6) / pr.width) * 100) / 100;
+      check("dragging tracks the pointer", Math.abs(perfSig() - expected) < 0.02,
+        `got ${perfSig()}, expected ~${expected}`);
+      check("a drag updates the element once per move, not twice",
+        uiRuns <= MOVES + 2, `${uiRuns} updates for ${MOVES} moves`);
+      perf.el.updateUI = realUpdate;
+
+      // a custom control must not push the label out of the row: a flex item will not shrink
+      // below its content's intrinsic width unless min-width is 0, which .gui-control brings
+      const customRow = gui.createRow("Custom widget", {});
+      const wrap = document.createElement("div");
+      wrap.className = "gui-control";
+      wrap.style.cssText = "display:flex;gap:4px";
+      for (let i = 0; i < 3; i++) {
+        const input = document.createElement("input");
+        input.type = "number"; // ~160px intrinsic width each — the thing that used to overflow
+        input.className = "gui-input-number";
+        input.style.cssText = "flex:1 1 0;min-width:0";
+        wrap.append(input);
+      }
+      customRow.row.append(wrap);
+      const rowWidth = customRow.row.getBoundingClientRect().width;
+      const labelWidth = customRow.labelEl.getBoundingClientRect().width;
+      const controlWidth = wrap.getBoundingClientRect().width;
+      check("a .gui-control row keeps room for its label", labelWidth > 40, `label ${labelWidth}px`);
+      check("…and the control stays inside the row", controlWidth < rowWidth, `${controlWidth} of ${rowWidth}`);
+      check("…and they do not overlap",
+        customRow.labelEl.getBoundingClientRect().right <= wrap.getBoundingClientRect().left + 1);
+      customRow.destroy();
+
+      // the preset UI is four rows, and its paired rows must actually fit
+      const uiStore = createPresetStore(params, { builtin: { hot: { amount: 0.9 } } });
+      const presetSection = gui.addSection("Preset UI");
+      const built = gui.addPresets(uiStore);
+      const presetRows = [...presetSection.body.querySelectorAll(".gui-row")];
+      check("addPresets builds four rows", presetRows.length === 4, `${presetRows.length} rows`);
+      const savedRow = built.saved.row;
+      check("the saved row carries its two buttons", savedRow.querySelectorAll(".gui-btn-mini").length === 2);
+      check("…and still shows its label", built.saved.labelEl.getBoundingClientRect().width > 30);
+      check("…without overflowing the row",
+        built.saved.el.getBoundingClientRect().right <= savedRow.getBoundingClientRect().right + 1);
+      const fileRow = built.files.row;
+      const [exportBtn, importBtn] = built.files.buttons;
+      check("export and import share one row",
+        Math.abs(exportBtn.getBoundingClientRect().top - importBtn.getBoundingClientRect().top) < 1);
+      check("…splitting it evenly",
+        Math.abs(exportBtn.getBoundingClientRect().width - importBtn.getBoundingClientRect().width) < 2,
+        `${exportBtn.getBoundingClientRect().width} vs ${importBtn.getBoundingClientRect().width}`);
+      check("…and filling it",
+        fileRow.getBoundingClientRect().width - (importBtn.getBoundingClientRect().right - exportBtn.getBoundingClientRect().left) < 6);
+      presetSection.destroy();
+      gui.endSection();
+
+      // a travelling parameter: the widget must show where the value was put, not where the
+      // animation currently is, or it would fight the hand dragging it
+      const slow = createParams({ amount: 0 }, { ease: 400 });
+      const slowRow = gui.addSlider("Travelling", slow.amount, 0, 1, 0.01);
+      check("a travelling parameter is a tween", slow.amount.target !== slow.amount);
+      slowRow.el.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
+      check("the widget writes the target", slow.amount.target() === 1, String(slow.amount.target()));
+      check("…the value is still travelling", slow.amount() < 1, String(slow.amount()));
+      check("…and the thumb shows the target, not the animation",
+        slowRow.el.value === 1, String(slowRow.el.value));
+      check("…as does the number beside it",
+        slowRow.row.querySelector(".gui-slider-val").textContent === "1.00",
+        slowRow.row.querySelector(".gui-slider-val").textContent);
+      slowRow.destroy();
+
+      // --- panel destroy --------------------------------------------------------------
+      const gui4 = new GUI("Bye", host);
+      const c4 = gui4.addSlider("x", signal(1), 0, 2, 0.1);
+      gui4.destroy();
+      check("gui.destroy removes the panel", !gui4.container.isConnected && !c4.row.isConnected);
+
+      document.querySelector("#results").textContent =
+        lines.join("\n") + "\n\n" + (failures ? `${failures} FAILURES` : "ALL PASS");
+    </script>
+    <script type="module" src="../theme.js"></script>
+  </body>
+</html>

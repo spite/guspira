@@ -1,0 +1,613 @@
+# Guspira
+
+A small reactive GUI toolkit for creative-coding sketches — the control panel from
+[polygon-shredder-2026](../polygon-shredder-2026) and [inktober-2025](../inktober-2025),
+merged into one library. Signals, sliders, tabs, presets.
+
+```js
+import GUI from "guspira/gui";
+import { signal, effect } from "guspira/reactive";
+
+const count = signal(400);
+
+const gui = new GUI("Sketch");
+gui.addSlider("Count", count, 10, 2000, 10);
+
+// nothing to poll, nothing to wire up:
+effect(() => rebuild(count()));
+```
+
+Every control binds to a **signal**, and the signal *is* the value. Move the slider and the
+signal updates; set the signal and the slider moves. There is no second copy of the state to
+keep in step, which is the thing dat.gui-style controllers spend most of their code on.
+
+## Install
+
+Copy `src/` and `css/gui.css` into a project, or install it:
+
+```sh
+npm install guspira
+```
+
+Then link the stylesheet and import the modules:
+
+```html
+<link rel="stylesheet" href="./css/gui.css" />
+<script type="module" src="./sketch.js"></script>
+```
+
+```js
+import GUI from "./src/gui.js";              // relative, or "guspira/gui" from npm
+import { signal, effect } from "./src/reactive.js";
+```
+
+Import from `guspira` (or `src/index.js`) to get everything at once. `src/reactive.js` has no
+DOM dependency at all, so it is usable on its own — in a worker, in a test.
+
+For a page that is not using modules, `dist/guspira.iife.js` puts the same API on a
+`Guspira` global:
+
+```html
+<link rel="stylesheet" href="dist/guspira.css" />
+<script src="dist/guspira.iife.js"></script>
+<script>
+  const { GUI, signal } = Guspira;
+</script>
+```
+
+Run it with any static server:
+
+```sh
+npm start          # then open http://localhost:3000/
+```
+
+The root page explains the two halves — signals, and the panel built on them — with both
+running live on it. `/demo/` is the gallery.
+
+Page styling lives in `css/site.css`, kept apart from `css/gui.css` so it stays obvious which
+rules belong to the toolkit and which belong to the pages around it.
+
+## Demos
+
+`demo/` is a gallery — one page per part of the toolkit, each a working sketch with its
+panel beside it and its source in `demo/<name>.js`.
+
+| | |
+| --- | --- |
+| [Warp field](demo/warp.html) | the whole toolkit in one sketch: a GPU noise field where every control is a uniform |
+| [Controls](demo/controls.html) | every control, each showing the signal it is bound to |
+| [Options](demo/options.html) | `onChange`, `disabled`, `visibleWhen`, `title`, `randomizable` |
+| [Tabs & sections](demo/structure.html) | grouping, folding, conditional sections, remembered layout |
+| [Controllers](demo/controllers.html) | building and tearing down rows at runtime |
+| [Extending](demo/extending.html) | custom controls from `createRow` + `bind` + `onDestroy` |
+| [Reactivity](demo/reactivity.html) | signals, computed, batching, tweens — with every effect run counted |
+| [Values that travel](demo/easing.html) | tweens: the panel shows the target, your code reads the journey |
+| [Rendering](demo/rendering.html) | `render()` as an effect: draw only when something changed |
+| [Params & persistence](demo/persistence.html) | a typed store that survives reloads and travels in a link |
+| [Presets](demo/presets.html) | built-in and saved looks, export and import |
+| [Randomize & keyboard](demo/randomize.html) | rerolls, key bindings, a seeded random source |
+| [Theming](demo/theming.html) | restyle the panel live through its CSS variables |
+| [`<range-slider>`](demo/range-slider.html) | the slider element alone, in a plain form |
+
+## Reactivity
+
+`src/reactive.js` is a standalone module — no imports, no DOM. Use it on its own in a sketch
+that doesn't want a panel, in a worker, or in node:
+
+```js
+import { signal, effect } from "guspira/reactive";
+```
+
+`effectRAF` and `tweened` need a clock: they use `requestAnimationFrame` where there is one
+and fall back to timers everywhere else, so the same code runs in a browser and under
+`node test/reactive.test.mjs`.
+
+```js
+import { signal, computed, effect, effectRAF, batch, untrack, tweened } from "guspira/reactive";
+
+const count = signal(400);
+count();              // read (and subscribe, inside an effect)
+count.set(800);       // write
+count.update((v) => v * 2);
+count.peek();         // read without subscribing
+
+const doubled = computed(() => count() * 2);
+
+const stop = effect(() => console.log(count()));   // runs now, and on every change
+stop();                                            // unsubscribe
+
+// coalesces into one run per frame — see Scheduling below for when to prefer your own queue
+const loop = effectRAF(() => rebuild(count()));
+loop.pause();   // records that it went dirty
+loop.resume();  // …and catches up once
+
+batch(() => {   // one effect run for the whole block, not one per write
+  count.set(1000);
+  radius.set(2);
+});
+
+// an effect that returns a function is handing back its teardown
+effect(() => {
+  const id = setInterval(tick, 100);
+  return () => clearInterval(id);   // before the next run, and on stop
+});
+```
+
+Signals compare before triggering, arrays element-wise — so a range slider handing back a
+fresh `[min, max]` on every pointer move only fires effects when the numbers actually change.
+
+**What a write costs.** A write collects its subscribers and drains them in one pass, so an
+effect reading both a signal and something derived from it runs once, not once per level, and
+never sees a half-updated value. Effects that throw are reported and skipped rather than
+taking the rest of the pass — one broken control cannot stop every other control bound to the
+same signal. An effect that writes a signal it also reads is caught and named instead of
+overflowing the stack.
+
+Deeper derivation chains (`a → b → c`, all read by one effect) still cost one run per level,
+because propagation is queued rather than topologically ordered. Put such an effect on a
+scheduler and the duplicates collapse into a single run.
+
+**One effect per thing, not one effect over everything.** An effect re-tracks its whole
+dependency set on each run, so a single effect reading 250 parameters pays 250 subscription
+updates every time any one of them moves — about 30× the cost of 250 effects reading one
+parameter each. `test/bench.mjs` measures it:
+
+```
+change 1 of 100 deps in one effect       6406 ns/op
+change 1 of 100, one effect each          137 ns/op
+```
+
+Reach for the wide effect only when the work genuinely depends on everything (a snapshot, a
+serialisation), and give it a scheduler so the burst collapses into one run.
+
+### Values that travel
+
+A tween is a signal whose value moves to where you put it instead of jumping there. Reading it
+gives the value on its way; `.target()` gives the destination:
+
+```js
+import { tweened, easings } from "guspira/reactive";
+
+const radius = tweened(1, 400, easings.cubicOut);
+
+radius.set(10);
+radius()             // 3.7, then 6.2, then 8.9… — what you draw
+radius.target()      // 10 — where it is heading
+radius.reset(0.5)    // jump, no animation
+radius.duration = 0  // duration and easing are writable, so a control can drive them
+radius.easing = easings.elasticOut
+```
+
+Both readings are signals, so an effect on the value re-runs every frame of the animation
+while one on the target re-runs once, when something actually changed.
+
+`easings` ships eight curves — `linear`, `quadIn/Out/InOut`, `cubicOut`, `expoOut`, `backOut`,
+`elasticOut` — and any `t => t` function of your own works. Two of them overshoot 0…1 on
+purpose, which is the point for a number and clamps for a colour.
+
+A tween travels between numbers by default. Pass an interpolator as the fourth argument and it
+travels between anything — `mixColors` moves through OKLab, so the path between two colours
+stays as bright as its ends instead of going through mud:
+
+```js
+import { mixColors } from "guspira/color";
+
+const tint = tweened("#ffb347", 700, easings.cubicOut, mixColors);
+tint.set("#7fd4ff");   // eases through the colours between
+```
+
+#### A whole store that travels
+
+`createParams` takes the same idea as an option, and then this is the whole story: **the panel
+writes and displays the target, your code reads the value.**
+
+```js
+const params = createParams(DEFAULTS, {
+  storageKey: "my-sketch",
+  ease: {
+    duration: 450,
+    easing: easings.cubicOut,
+    skip: ["quality", "octaves", "paused"],
+  },
+});
+
+gui.addSlider("Scale", params.scale, 0, 8, 0.05);   // writes and shows the destination
+gl.uniform1f(uScale, params.scale());                // draws the journey
+params.$ease(0);                                     // retime; 0 arrives at once
+```
+
+Nothing needs telling which is which. A control binds to `params.x.target()` on its own — it
+has to, or the thumb would be rewritten from the animation on every frame and fight your hand.
+Saves, presets and links record the target, so a file never captures a value mid-flight. And on
+a parameter that does not travel, the target *is* the signal, so all of this stays true.
+
+**What can travel is decided by the value; what should is decided by you.** Numbers ease, hex
+colours ease through OKLab, and anything else — booleans, option strings, arrays — has no
+meaningful path between two of them. `only` and `skip` narrow it further.
+
+The [warp demo](demo/warp.html) drives its whole shader this way, behind its **Ease** slider,
+and the [easing demo](demo/easing.html) puts both readings on screen at once.
+
+## Scheduling, and render() as an effect
+
+An effect runs synchronously by default, which means five writes in a row rebuild your
+geometry five times. Deferring the re-run fixes that, and *when* it re-runs is a real choice:
+
+```js
+effect(fn)                            // synchronously, on every change
+effect(fn, { scheduler: microtask })  // once at the end of the turn — no added latency
+effect(fn, { scheduler: frame })      // once per animation frame (this is effectRAF)
+effect(fn, { scheduler: myQueue })    // when you say so
+```
+
+`frame` and `microtask` are ready-made shared queues; `createScheduler()` gives you your own,
+and passing it a driver makes it flush itself. `effectRAF` is the convenient case, not the
+good one. It books its own animation frame, so in
+a sketch that already has a render loop there are two schedulers racing: your rebuild may land
+before or after the draw that needed it, depending on registration order. When you own a frame
+loop, own the flush point too:
+
+```js
+import { createScheduler, effect, frame, microtask } from "guspira/reactive";
+
+const renderQueue = createScheduler();
+
+// Reading the params inside is the subscription — there is no dependency list to maintain.
+effect(() => draw(params.count(), params.hue()), { scheduler: renderQueue });
+
+function loop(t) {
+  requestAnimationFrame(loop);
+  if (animating) time.set(t / 1000);
+  renderQueue.flush();   // pending work runs here, in a defined order, and only if there is any
+}
+```
+
+That is `render()` as an effect. Two things fall out of it:
+
+- **Nothing changed, nothing drawn.** An idle sketch flushes an empty queue and burns no time.
+  `renderQueue.size` tells you whether there is work; `pause()`/`resume()` stop and catch up the
+  whole queue at once, which is the right granularity for a hidden panel or a paused sketch.
+- **Animation stops being a special case.** Keep a `time` signal and write it from the loop.
+  An effect that reads it redraws every frame; one that doesn't, doesn't. Animating and
+  reacting to a slider become the same mechanism.
+
+Work queued *during* a flush lands in the next one, so an effect that writes a signal another
+effect reads can't spin the current pass forever.
+
+The [rendering demo](demo/rendering.html) runs both modes side by side with the draw count per
+second on screen.
+
+## Controls
+
+Every `add*` takes a label, a signal, and whatever that control needs. They all return a
+[controller](#controllers).
+
+```js
+gui.addSlider("Speed", params.speed, 0, 10, 0.1);
+gui.addRangeSlider("Size", params.sizeRange, 0.1, 3, 0.05);   // signal holds [min, max]
+gui.addCheckbox("Paused", params.paused);
+gui.addSelect("Palette", params.palette, ["warm", "cool"]);   // or [[value, label], …]
+gui.addColor("Tint", params.tint);
+gui.addTextInput("Name", params.name);
+gui.addNumber("Seed", params.seed, { min: 0, step: 1 });
+gui.addMonitor("FPS", fps, { format: (v) => v.toFixed(1) });  // read-only
+gui.addButton("Export", () => save());
+gui.addButtons(null, [                                        // several on one row
+  { label: "Export", onClick: save },
+  { label: "Import", onClick: load },
+]);
+gui.addFileButton("Load model…", (file) => load(file), { accept: ".glb" });
+gui.addRandomizeButton("Randomize", () => rebuild());
+gui.addLabel("Section heading");
+gui.addText("Free <b>HTML</b>.");
+gui.addSeparator();
+gui.addElement(myCustomWidget, { label: "Custom" });
+```
+
+A slider's value can be dragged, nudged with the arrow keys, or typed — click the number.
+
+### Options
+
+Every control takes an optional trailing options object:
+
+| Option | Meaning |
+| --- | --- |
+| `onChange` | Called on user input, after the signal is set. Not called on programmatic writes. |
+| `disabled` / `disabledWhen` | Greys the row out and stops it responding. |
+| `visible` / `visibleWhen` | `false` removes the row entirely. |
+| `title` | Tooltip on the label. |
+| `randomizable` | `false` to keep the control out of label-click and panel randomisation. |
+
+The two state options come in pairs, and both names accept both kinds of value — a boolean
+for a state that never changes, a predicate for one that does. The `When` spelling is the one
+to reach for with a predicate, because it says out loud that the rule keeps holding:
+
+```js
+gui.addSlider("ISO", params.iso, 50, 6400, 50, {
+  disabledWhen: () => params.mode() === "auto",   // a rule, re-evaluated
+});
+
+gui.addSlider("Build", params.build, 0, 9, 1, {
+  disabled: true,                                  // a fact, decided once
+});
+```
+
+A predicate re-evaluates whenever anything it reads changes, so the rule lives in one place
+instead of in every handler that might affect it. `addSection` takes the same pair, which
+hides or greys a whole group at once.
+
+```js
+gui.addSlider("Radius", params.radius, 0, 4, 0.01, {
+  onChange: () => rebuild(),
+  disabled: () => params.locked(),
+});
+```
+
+The older positional form — `addSlider(label, sig, min, max, step, onChange, disabled)` —
+still works, so existing sketches don't have to change.
+
+### Structure
+
+```js
+gui.addSelect("Preset", params.preset, presetNames); // above the tabs: always visible
+
+gui.addTab("Motion");                    // following controls go in this tab
+gui.addSection("Field");                 // …and in this section
+gui.addSlider("Speed", params.speed, 0, 2, 0.01);
+
+gui.addSection("Attractor", { visibleWhen: () => params.field() === "attractor" });
+gui.addSlider("Scale", params.scale, 0.2, 3, 0.05);
+
+gui.addTab("Look");
+gui.addSection("Colour", { open: false }); // folded to start
+```
+
+Building a panel is sequential, but adding a row later is not. `into()` targets a tab or
+section whenever you need it — for a button that appends to a section built long before:
+
+```js
+const layers = gui.addSection("Layers");
+gui.addButton("Add layer", () => {
+  gui.into(layers, () => gui.addSlider(`Layer ${n}`, opacity, 0, 1, 0.01));
+});
+```
+
+Sections fold when their title is clicked. With a `storageKey` on the GUI, which section is
+folded and which tab is open are remembered between reloads:
+
+```js
+const gui = new GUI("Sketch", document.querySelector("#gui"), { storageKey: "my-sketch" });
+```
+
+### Randomizing
+
+Clicking a control's label rerolls it. `addRandomizeButton` rerolls the whole panel and then
+runs its callback — bound to <kbd>R</kbd> unless you pass another `key` (or `key: null`).
+Controls marked `randomizable: false`, and any control currently disabled, are left alone.
+
+```js
+gui.addRandomizeButton("Randomize (R)", () => rebuild());
+gui.addSlider("Count", params.count, 100, 10000, 100);
+gui.addSlider("Seed", params.seed, 0, 9999, 1, { randomizable: false });
+
+gui.randomizeAll();                                        // by hand
+gui.addRandomizeButton("Roll these", rebuild, { scope: "following" });  // only what comes after
+```
+
+Sketches using a seeded PRNG can point the toolkit at it, so a reroll is reproducible:
+
+```js
+import { setRandomSource } from "guspira/random";
+setRandomSource(() => myPrng());
+```
+
+### Controllers
+
+`add*` returns a handle on the row it built:
+
+```js
+const c = gui.addSlider("Radius", params.radius, 0, 4, 0.01);
+c.row        // the .gui-row element
+c.el         // the widget itself
+c.signal     // the bound signal
+c.setVisible(false)
+c.destroy()  // removes the row and stops its effects
+```
+
+`destroy()` matters for panels that change shape at runtime — without it a removed row stays
+subscribed to its signal, and neither is ever collected. `gui.destroy()` tears down the whole
+panel the same way.
+
+The same three pieces build controls the toolkit doesn't ship: `createRow` for the row,
+`bind` for effects it owns, `onDestroy` for anything else that must be undone.
+
+```js
+GUI.prototype.addVector = function (label, value, opts = {}) {
+  const sig = toSignal(value);
+  const controller = this.createRow(label, opts);   // row, label, disabled, visibleWhen
+
+  const widget = document.createElement("div");
+  widget.className = "gui-control";                 // the same column the built-ins sit in
+  controller.row.append(widget);
+
+  controller.bind(() => paint(sig()));              // an effect the row owns
+  controller.onDestroy(() => removeEventListener("pointermove", move));
+  return controller;
+};
+```
+
+Give the widget `class="gui-control"` and it lines up with every other row. That class also
+sets `min-width: 0`, which is the part worth knowing: a flex item will not shrink below its
+content's intrinsic width without it, so a widget holding anything naturally wide — a number
+input is about 160px — pushes the label out of the row instead of fitting the column.
+
+[Extending demo →](demo/extending.html)
+
+## Parameters and persistence
+
+`createParams` builds one signal per key from a defaults object. The defaults double as the
+schema: they fix the key set and the type of each value, so a stale save or a hand-edited
+link can't put a string where a number belongs.
+
+```js
+import { createParams } from "guspira/params";
+
+const params = createParams(
+  { count: 65536, speed: 0.5, palette: "warm", paused: false },
+  {
+    storageKey: "my-sketch",  // persisted (debounced) to localStorage
+    exclude: ["paused"],      // …except these
+    url: true,                // ?count=2000&palette=cool overrides the stored value
+    migrate: (stored) => stored, // rewrite an older save before it is applied
+  }
+);
+
+params.count();          // it's just a signal
+params.count.set(2048);
+```
+
+Helpers hang off the store under `$` names, so `Object.keys(params)` stays exactly the
+parameters:
+
+| Helper | |
+| --- | --- |
+| `params.$snapshot()` | plain object of the current values |
+| `params.$apply(values)` | write a batch of values, skipping unknown keys and wrong types |
+| `params.$reset()` | back to defaults — every key, `exclude`d ones included |
+| `params.$toQuery()` | query string of everything that differs from defaults |
+| `params.$flush()` | force the pending storage write |
+| `params.$stop()` | stop persisting |
+
+Writes are debounced and flushed on `pagehide`, so dragging a slider doesn't hammer
+`localStorage` and closing the tab doesn't lose the last change.
+
+## Presets
+
+```js
+import { createPresetStore } from "guspira/presets";
+
+const presets = createPresetStore(params, {
+  builtin: { calm: { speed: 0.2, count: 4096 }, chaos: { speed: 2, count: 500000 } },
+  storageKey: "my-sketch-presets",
+});
+
+gui.addSection("Presets");
+gui.addPresets(presets);   // picker, saved list, save / load / delete / export / import
+```
+
+Built-in presets are partial — a preset says only what it changes. User presets are full
+snapshots in `localStorage`, and the same JSON goes in and out of a file. `presets.toJSON()`
+gives you the whole state to paste into a bug report.
+
+`addPresets` builds four rows, not eight: the picker, the saved list with **Load** and **✕**
+beside it, the name field with **Save** beside it, and **Export** / **Import** sharing a row.
+The same two pieces are available on their own — `addButtons` for a row of buttons, and the
+`gui-compact` class for a field with a button next to it.
+
+## Keyboard
+
+```js
+import { bindKey } from "guspira/keyboard";
+
+const unbind = bindKey("KeyC", () => toggleRecording());
+```
+
+Bindings ignore key presses while a field has focus, and a bare letter doesn't fire when
+Ctrl or Cmd is held — so `KeyC` doesn't fight Ctrl+C.
+
+## Theming
+
+Everything visual is a CSS custom property on `.gui`, so a theme is an override, not a fork:
+
+```css
+.gui {
+  --gui-bg: #14141a;
+  --gui-fg: #e8e8ef;
+  --gui-accent: #7dd3fc;
+  --gui-label-width: 120px;
+}
+```
+
+Colours: `--gui-bg`, `--gui-fg`, `--gui-muted`, `--gui-field-bg`, `--gui-border`,
+`--gui-focus`, `--gui-accent`, `--gui-btn-bg`, `--gui-btn-hover`, `--gui-btn-active`,
+`--gui-track`, `--gui-fill`, `--gui-thumb`, `--gui-thumb-hover`, `--gui-check`.
+Metrics: `--gui-font`, `--gui-font-size`, `--gui-padding`, `--gui-gap`, `--gui-row-height`,
+`--gui-label-width`, `--gui-radius`, `--gui-panel-radius`, `--gui-track-height`,
+`--gui-check-size`, `--gui-max-height`.
+
+Nothing is left to the platform: the checkbox is drawn by the stylesheet too, so it picks up
+`--gui-accent` when checked and draws its tick in `--gui-check`, which defaults to the panel
+background — whatever the accent is, the tick contrasts with it.
+
+The variables reach the slider's shadow root too. A light theme ships as
+`<div class="gui gui-light">` — pass `{ className: "gui-light" }` to the constructor.
+
+The panel is positioned by its container, not by the toolkit:
+
+```css
+#gui-container { position: fixed; top: 10px; right: 10px; width: 340px; }
+```
+
+## `<range-slider>`
+
+The slider is a standalone form-associated custom element — usable without the rest:
+
+```html
+<range-slider min="0" max="1" step="0.01" value="0.4"></range-slider>
+<range-slider dual min="0" max="1" step="0.01" value="0.2,0.8"></range-slider>
+```
+
+`value` is a number, or `[min, max]` in `dual` mode. It emits `input` while dragging and
+`change` on release, and supports arrows, Page keys and Home/End (Shift moves the lower
+handle of a dual slider).
+
+## Tests
+
+```sh
+npm test           # the core, the params/preset layer, example coverage, and every page
+```
+
+The third checks that every public export, panel method and option actually appears in a
+demo — documentation drifts, a test doesn't. Anything genuinely not demonstrable is listed
+with its reason in `test/coverage.test.mjs` rather than quietly skipped.
+
+The fourth loads every page in headless Chrome and fails if one threw. It skips itself when
+no Chrome is installed, so `npm test` still runs anywhere.
+
+The DOM half needs a browser: serve the project and open `/test/`, which builds panels and
+drives them with real events — drags, key presses, label clicks, folding, `destroy()` — then
+prints the results on the page. `/test/dist.html` runs the same kind of check against the
+files in `dist/`.
+
+## Moving an existing sketch over
+
+The API is the one both projects already use. What changed:
+
+- **`addSelect(label, signal, options)`** — argument order is now consistent with every
+  other control. The inktober order `(label, options, signal)` is detected and still works.
+- **`addText` is display-only**, `addTextInput(label, signal)` is the field. Both projects
+  had two conflicting `addText` definitions; in polygon-shredder the second silently shadowed
+  the first, which is why the preset **Name** field there never did anything.
+- **`addColorPicker` is `addColor`**.
+- **The panel is visible by default.** Pass `{ visible: false }` to keep the old behaviour of
+  waiting for `gui.show()`.
+- **Section titles fold on click.** Pass `{ collapsible: false }` for a plain heading.
+- `add*` returns a controller instead of the GUI, so chained `gui.addX().addY()` calls need
+  splitting — neither project chained.
+- One way to do each thing: a controller has `setVisible(bool)` (no separate `show`/`hide`),
+  and the panel's fold state is the `gui.rowsExpanded` signal (no `expand`/`collapse`).
+- The CSS class for the header is `.gui-title` (was `.title`), so it can't collide with a
+  page's own styles.
+
+`signal`, `effect`, `computed`, `batch`, `effectRAF` and `tweened` behave as before;
+`effect` now returns a stop function, and `effectRAF` returns `{ stop, pause, resume }`.
+
+One fix worth knowing about if you compare values with an old build: both projects derived a
+step's decimals with `-log10(step)`, which is off by one for any step that isn't a power of
+ten. A `0.05` slider snapped onto a `0.1` grid and a `0.25` slider onto `0.3`. Guspira counts
+the decimals properly (`src/format.js`), so those sliders now reach the values they always
+advertised.
+
+## Licence
+
+MIT

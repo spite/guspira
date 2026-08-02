@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Guspira — Easing</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="../css/gui.css" />
+    <link rel="stylesheet" href="../css/site.css" />
+    <style>
+      #canvas {
+        width: 100%;
+        height: 300px;
+        display: block;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--card-deep);
+        color: var(--fg);
+      }
+    </style>
+  </head>
+  <body>
+    <header class="page-head">
+      <a class="back" href="./">← all demos</a>
+      <h1>Values that travel</h1>
+      <p>
+        A tween is a signal you can hand to a control like any other. The panel writes and shows
+        where you put the value; your code reads where it currently is. Nothing needs wiring
+        between the two.
+      </p>
+    </header>
+    <main class="demo">
+      <section class="stage">
+        <canvas id="canvas"></canvas>
+        <div>
+          <h2>Both readings</h2>
+          <div class="readout" id="state"></div>
+        </div>
+        <div class="codecard">
+          <div class="bar"><i></i><i></i><i></i><span>sketch.js</span></div>
+          <pre class="code">const position = tweened(0.25, 700, easings.cubicOut);
+
+gui.addSlider("Position", position, 0, 1, 0.01);
+
+position.set(1);      // the slider does this
+position.target();    // 1 — where it is heading, what the panel shows
+position();           // 0.31, 0.68, 0.94… — what you draw</pre>
+        </div>
+        <div class="note">
+          <strong>Try:</strong> drag <em>Position</em> and watch the thumb arrive instantly while the
+          dot takes its time — that is the panel reading <code>.target()</code> and the canvas reading
+          the value. Pick <em>backOut</em> or <em>elasticOut</em> to see a curve leave the 0–1 band on
+          the way. The two counters show why the split exists: one effect per change, or one per
+          frame, depending on which reading it asked for.
+        </div>
+      </section>
+      <aside id="gui-container"></aside>
+    </main>
+    <script type="module" src="./easing.js"></script>
+    <footer>
+      <span><a href="../">Guspira</a> · <a href="./">all demos</a></span>
+      <span><a href="https://github.com/spite/guspira">GitHub</a> · MIT © Jaume Sanchez Elias</span>
+    </footer>
+    <script type="module" src="../theme.js"></script>
+  </body>
+</html>

@@ -1,0 +1,216 @@
+/* Palette and theming, split out so a page can take the light/dark switch without the rest of
+   the site's page chrome — the flagship sketch and the test pages are full-bleed and want only
+   this part. css/site.css imports it; those pages link it directly. */
+
+/* Dark by default, light when the system asks for it, and either one when the reader says so
+   with the toggle. The explicit choice is an attribute on <html>, so it outranks the media
+   query without any of the palettes being duplicated. */
+:root {
+  color-scheme: dark;
+  --accent: #ff9f45;
+  --accent-hot: #ffb347;
+  --accent-ink: #1a1207; /* text on top of the accent */
+  --accent-text: var(--accent); /* the accent, where it has to be small text */
+  --bg: #0a0b10;
+  --fg: #e8e8ee;
+  --dim: #9aa0ad;
+  --dimmer: #7b8194;
+  --line: #23242f;
+  --line-soft: #1c1d28;
+  --card: #12131a;
+  --card-deep: #0e0f16;
+  --code-comment: #6b7080;
+  --code-keyword: #ff6b81;
+  --code-string: #9ece6a;
+  --code-fn: #7aa2f7;
+  --code-number: #e0af68;
+  --readout-fg: #9ece6a;
+  --chrome-hover: #3a3d52;
+  --chrome-btn: #12131a;
+  --chrome-border: #262838;
+  --eyebrow-bg: #14151d;
+  --hero-glow-a: hsl(28 90% 50% / 0.26);
+  --hero-glow-b: hsl(348 70% 45% / 0.18);
+
+  /* Cards carry a hue of their own (--h) and take their saturation and lightness from the
+     theme, so a tinted card is dark on a dark page and pale on a light one from one
+     definition rather than two sets of rules. Each is the tail of an hsl() call. */
+  --tint-bg: 26% 11%;
+  --tint-bg-hover: 30% 14%;
+  --tint-border: 24% 21%;
+  --tint-border-hover: 45% 38%;
+  --tint-ink: 75% 72%;
+  --tint-chip: 70% 50% / 0.14;
+  --tint-chip-hover: 70% 50% / 0.22;
+  --tint-chip-border: 60% 50% / 0.3;
+  --tint-chip-border-hover: 60% 55% / 0.5;
+
+  /* On a dark page a shadow reads as depth; on a light one the same shadow reads as dirt, so
+     it drops to a hint and spreads instead. */
+  --shadow-soft: 0 7px 22px rgba(0, 0, 0, 0.2);
+  --shadow-lift: 0 7px 17px rgba(0, 0, 0, 0.2);
+  --shadow-chip: 0 1px 6px rgba(0, 0, 0, 0.2);
+  --shadow-panel: 0 4px 13px rgba(0, 0, 0, 0.2);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --accent: #ff6500;
+  --accent-hot: #e85a00;
+  --accent-ink: #2a1000;
+  --accent-text: #c2410c; /* the accent is too bright to read at 12px */
+  --bg: #f7f7f9;
+  --fg: #17181d;
+  --dim: #5b6270;
+  --dimmer: #767d8c;
+  --line: #dedee6;
+  --line-soft: #e9e9f0;
+  --card: #ffffff;
+  --card-deep: #f2f2f6;
+  --code-comment: #8a8f9c;
+  --code-keyword: #b01455;
+  --code-string: #2f6f3e;
+  --code-fn: #2456b8;
+  --code-number: #9a5b00;
+  --readout-fg: #2f6f3e;
+  --chrome-hover: #b9bcc9;
+  --chrome-btn: #ffffff;
+  --chrome-border: #dedee6;
+  --eyebrow-bg: #ffffff;
+  --hero-glow-a: hsl(28 95% 55% / 0.22);
+  --hero-glow-b: hsl(348 80% 60% / 0.14);
+
+  --tint-bg: 62% 96%;
+  --tint-bg-hover: 66% 93%;
+  --tint-border: 38% 85%;
+  --tint-border-hover: 50% 62%;
+  --tint-ink: 65% 33%;
+  --tint-chip: 65% 55% / 0.16;
+  --tint-chip-hover: 65% 55% / 0.26;
+  --tint-chip-border: 50% 50% / 0.32;
+  --tint-chip-border-hover: 50% 45% / 0.5;
+
+  --shadow-soft: 0 5px 15px rgba(24, 24, 40, 0.03);
+  --shadow-lift: 0 6px 15px rgba(24, 24, 40, 0.05);
+  --shadow-chip: 0 1px 5px rgba(24, 24, 40, 0.04);
+  --shadow-panel: 0 4px 13px rgba(24, 24, 40, 0.04);
+}
+
+/* The panel is themed by its own variables, so light mode is an override of those rather than
+   a class the pages have to remember to add to every panel they create. */
+:root[data-theme="light"] .gui {
+  --gui-bg: #ffffff;
+  --gui-fg: #1c1c1e;
+  --gui-muted: #6b6b70;
+  --gui-field-bg: #f1f1f4;
+  --gui-border: #d8d8e0;
+  --gui-focus: #8a8a94;
+  --gui-accent: #ff6500;
+  --gui-btn-bg: #eeeef2;
+  --gui-btn-hover: #e2e2e9;
+  --gui-btn-active: #d5d5de;
+  --gui-track: #dcdce4;
+  --gui-fill: #ff6500;
+  --gui-thumb: #ffffff;
+  --gui-thumb-hover: #fff6ec;
+  --gui-check: #2a1000;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --accent: #ff6500;
+    --accent-hot: #e85a00;
+    --accent-ink: #2a1000;
+    --accent-text: #c2410c; /* the accent is too bright to read at 12px */
+    --bg: #f7f7f9;
+    --fg: #17181d;
+    --dim: #5b6270;
+    --dimmer: #767d8c;
+    --line: #dedee6;
+    --line-soft: #e9e9f0;
+    --card: #ffffff;
+    --card-deep: #f2f2f6;
+    --code-comment: #8a8f9c;
+    --code-keyword: #b01455;
+    --code-string: #2f6f3e;
+    --code-fn: #2456b8;
+    --code-number: #9a5b00;
+    --readout-fg: #2f6f3e;
+    --chrome-hover: #b9bcc9;
+    --chrome-btn: #ffffff;
+    --chrome-border: #dedee6;
+    --eyebrow-bg: #ffffff;
+    --hero-glow-a: hsl(28 95% 55% / 0.22);
+    --hero-glow-b: hsl(348 80% 60% / 0.14);
+
+    --tint-bg: 62% 96%;
+    --tint-bg-hover: 66% 93%;
+    --tint-border: 38% 85%;
+    --tint-border-hover: 50% 62%;
+    --tint-ink: 65% 33%;
+    --tint-chip: 65% 55% / 0.16;
+    --tint-chip-hover: 65% 55% / 0.26;
+    --tint-chip-border: 50% 50% / 0.32;
+    --tint-chip-border-hover: 50% 45% / 0.5;
+
+    --shadow-soft: 0 5px 15px rgba(24, 24, 40, 0.03);
+    --shadow-lift: 0 6px 15px rgba(24, 24, 40, 0.05);
+    --shadow-chip: 0 1px 5px rgba(24, 24, 40, 0.04);
+    --shadow-panel: 0 4px 13px rgba(24, 24, 40, 0.04);
+  }
+
+  :root:not([data-theme="dark"]) .gui {
+    --gui-bg: #ffffff;
+    --gui-fg: #1c1c1e;
+    --gui-muted: #6b6b70;
+    --gui-field-bg: #f1f1f4;
+    --gui-border: #d8d8e0;
+    --gui-focus: #8a8a94;
+    --gui-accent: #ff6500;
+    --gui-btn-bg: #eeeef2;
+    --gui-btn-hover: #e2e2e9;
+    --gui-btn-active: #d5d5de;
+    --gui-track: #dcdce4;
+    --gui-fill: #ff6500;
+    --gui-thumb: #ffffff;
+    --gui-thumb-hover: #fff6ec;
+    --gui-check: #2a1000;
+  }
+}
+
+/* --- the switch itself --------------------------------------------------------------- */
+
+.theme-toggle {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  z-index: 10000;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--chrome-border);
+  background: var(--chrome-btn);
+  color: var(--fg);
+  cursor: pointer;
+  padding: 0;
+  box-shadow: var(--shadow-chip);
+  transition: border-color 120ms ease, transform 120ms ease;
+}
+
+.theme-toggle:hover {
+  border-color: var(--chrome-hover);
+  transform: translateY(-1px);
+}
+
+.theme-toggle svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}

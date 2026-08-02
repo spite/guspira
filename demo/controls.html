@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Guspira — Controls</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="../css/gui.css" />
+    <link rel="stylesheet" href="../css/site.css" />
+  </head>
+  <body>
+    <header class="page-head">
+      <a class="back" href="./">← all demos</a>
+      <h1>Controls</h1>
+      <p>Every control the panel ships. Each row is bound to a signal, and the readout below is rendered from those same signals — move anything and it updates, because nothing else is keeping the two in step.</p>
+    </header>
+    <main class="demo">
+      <section class="stage">
+        <div>
+          <h2>Live state</h2>
+          <div class="readout" id="state"></div>
+        </div>
+        <div>
+          <h2>Events</h2>
+          <div class="readout log" id="log"></div>
+        </div>
+        <div class="note">
+          <strong>Try:</strong> click the number beside a slider to type an exact value; use the arrow
+          keys once a slider has focus; click a control's <em>label</em> to reroll just that control.
+        </div>
+      </section>
+      <aside id="gui-container"></aside>
+    </main>
+    <script type="module" src="./controls.js"></script>
+    <footer>
+      <span><a href="../">Guspira</a> · <a href="./">all demos</a></span>
+      <span><a href="https://github.com/spite/guspira">GitHub</a> · MIT © Jaume Sanchez Elias</span>
+    </footer>
+    <script type="module" src="../theme.js"></script>
+  </body>
+</html>

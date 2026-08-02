@@ -1,0 +1,102 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Guspira — dist smoke test</title>
+    <link rel="stylesheet" href="../dist/guspira.min.css" />
+    <link rel="stylesheet" href="../css/theme.css" />
+    <style>
+      body { background: #111; color: #ddd; font: 12px monospace; padding: 20px; display: flex; gap: 20px; }
+      #results { white-space: pre; }
+    </style>
+  </head>
+  <body>
+    <div id="host" style="width: 320px"></div>
+    <div id="results">running…</div>
+
+    <!-- The IIFE build, loaded the way a page with no module setup would: one tag, one global. -->
+    <script src="../dist/guspira.iife.min.js"></script>
+    <script src="../dist/guspira-reactive.iife.min.js"></script>
+    <script type="module">
+      // …and the ESM build, imported alongside it in the same page.
+      import * as esm from "../dist/guspira.js";
+
+      const lines = [];
+      let failures = 0;
+      const check = (name, cond, extra = "") => {
+        lines.push(`${cond ? "ok  " : "FAIL"} ${name}${extra ? " — " + extra : ""}`);
+        if (!cond) failures++;
+      };
+      window.onerror = (m) => { lines.push("FAIL uncaught: " + m); failures++; };
+
+      const EXPECTED = [
+        "GUI", "Controller", "Section", "Tab",
+        "signal", "computed", "effect", "effectRAF", "createScheduler", "frame", "microtask",
+        "batch", "untrack", "tweened", "easings", "isSignal", "toSignal",
+        "precision", "formatFloat", "snap",
+        "createParams", "readStorage", "writeStorage", "mixColors", "hexToRgb",
+        "createPresetStore", "copyText",
+        "bindKey",
+        "random", "randomInRange", "randomElement", "randomBool", "randomHexColor", "setRandomSource",
+        "RangeSlider",
+      ];
+
+      // --- the IIFE global ---------------------------------------------------------
+      check("iife exposes a single global", typeof window.Guspira === "object");
+      const missing = EXPECTED.filter((k) => !(k in window.Guspira));
+      check("iife global carries the whole API", missing.length === 0, missing.join(", "));
+      const extra = Object.keys(window.Guspira).filter((k) => !EXPECTED.includes(k) && k !== "default");
+      check("iife global carries nothing else", extra.length === 0, extra.join(", "));
+
+      // --- the reactive-only build --------------------------------------------------
+      check("reactive-only global exists", typeof window.GuspiraReactive === "object");
+      check("…and has no GUI in it", !("GUI" in window.GuspiraReactive));
+      const rs = window.GuspiraReactive.signal(1);
+      let rr = 0;
+      window.GuspiraReactive.effect(() => { rs(); rr++; });
+      rs.set(2);
+      check("…and actually works", rr === 2);
+
+      // --- the esm build ---------------------------------------------------------------
+      const esmMissing = EXPECTED.filter((k) => !(k in esm));
+      check("esm build carries the whole API", esmMissing.length === 0, esmMissing.join(", "));
+
+      // --- a panel built from the bundle, styled by the bundled css --------------------
+      const { GUI, signal, createParams, createPresetStore } = window.Guspira;
+      const params = createParams({ amount: 0.5, mode: "a" });
+      const gui = new GUI("From dist", document.querySelector("#host"));
+      const slider = gui.addSlider("Amount", params.amount, 0, 1, 0.05);
+      gui.addSelect("Mode", params.mode, ["a", "b"]);
+
+      check("the panel rendered", gui.container.isConnected && !!slider.row.parentElement);
+      check("the bundled stylesheet applied",
+        getComputedStyle(gui.container).backgroundColor === "rgb(44, 44, 44)",
+        getComputedStyle(gui.container).backgroundColor);
+      check("the custom element registered", !!customElements.get("range-slider"));
+      check("the slider has layout", slider.el.getBoundingClientRect().width > 10);
+
+      params.amount.set(0.75);
+      check("signals drive the widget", slider.el.value === 0.75, String(slider.el.value));
+      slider.el.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
+      check("the 0.05 step survived bundling", params.amount() === 0.8, String(params.amount()));
+
+      const presets = createPresetStore(params, { builtin: { hot: { amount: 0.1 } } });
+      presets.apply("hot");
+      check("presets work from the bundle", params.amount() === 0.1);
+
+      // the two builds share no state, but must agree on behaviour
+      const a = esm.signal(0);
+      const b = window.Guspira.signal(0);
+      check("esm and iife are independent copies", esm.signal !== window.Guspira.signal);
+      let ar = 0, br = 0;
+      esm.effect(() => { a(); ar++; });
+      window.Guspira.effect(() => { b(); br++; });
+      a.set(1); b.set(1);
+      check("…that behave identically", ar === 2 && br === 2);
+
+      document.querySelector("#results").textContent =
+        lines.join("\n") + "\n\n" + (failures ? `${failures} FAILURES` : "ALL PASS");
+    </script>
+    <script type="module" src="../theme.js"></script>
+  </body>
+</html>

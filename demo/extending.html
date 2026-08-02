@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Guspira — Extending</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="../css/gui.css" />
+    <link rel="stylesheet" href="../css/site.css" />
+  </head>
+  <body>
+    <header class="page-head">
+      <a class="back" href="./">← all demos</a>
+      <h1>Extending</h1>
+      <p>
+        Controls the toolkit doesn't ship. <code>createRow</code> hands you a row and a controller,
+        <code>bind</code> registers an effect the row owns, and <code>onDestroy</code> registers the
+        cleanup — which is all a custom control needs to behave like a built-in one, down to
+        lining up in the same column via <code>.gui-control</code>.
+      </p>
+    </header>
+    <main class="demo">
+      <section class="stage">
+        <div>
+          <h2>State</h2>
+          <div class="readout" id="state"></div>
+        </div>
+        <div>
+          <h2>Log</h2>
+          <div class="readout log" id="log"></div>
+        </div>
+        <div class="note">
+          <strong>Try:</strong> drag inside the <em>Aim</em> pad, click the <em>Position</em> label to
+          reroll it, then press <em>Destroy the pad</em> — its window listeners go with it, because
+          they were registered through <code>onDestroy</code>. Custom rows join
+          <code>randomizeAll()</code> and honour <code>disabled</code> like anything else.
+        </div>
+      </section>
+      <aside id="gui-container"></aside>
+    </main>
+    <script type="module" src="./extending.js"></script>
+    <footer>
+      <span><a href="../">Guspira</a> · <a href="./">all demos</a></span>
+      <span><a href="https://github.com/spite/guspira">GitHub</a> · MIT © Jaume Sanchez Elias</span>
+    </footer>
+    <script type="module" src="../theme.js"></script>
+  </body>
+</html>

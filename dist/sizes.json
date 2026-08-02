@@ -1,0 +1,55 @@
+{
+  "version": "0.1.0",
+  "files": [
+    {
+      "file": "guspira-reactive.iife.js",
+      "raw": 10835,
+      "gzip": 3292
+    },
+    {
+      "file": "guspira-reactive.iife.min.js",
+      "raw": 4686,
+      "gzip": 2220
+    },
+    {
+      "file": "guspira-reactive.js",
+      "raw": 9014,
+      "gzip": 2898
+    },
+    {
+      "file": "guspira-reactive.min.js",
+      "raw": 4205,
+      "gzip": 2001
+    },
+    {
+      "file": "guspira.css",
+      "raw": 8164,
+      "gzip": 2170
+    },
+    {
+      "file": "guspira.iife.js",
+      "raw": 68984,
+      "gzip": 17688
+    },
+    {
+      "file": "guspira.iife.min.js",
+      "raw": 34301,
+      "gzip": 11725
+    },
+    {
+      "file": "guspira.js",
+      "raw": 63852,
+      "gzip": 17098
+    },
+    {
+      "file": "guspira.min.css",
+      "raw": 6879,
+      "gzip": 2068
+    },
+    {
+      "file": "guspira.min.js",
+      "raw": 33780,
+      "gzip": 11501
+    }
+  ]
+}

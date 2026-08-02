@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Guspira — Controllers</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="../css/gui.css" />
+    <link rel="stylesheet" href="../css/site.css" />
+  </head>
+  <body>
+    <header class="page-head">
+      <a class="back" href="./">← all demos</a>
+      <h1>Controllers</h1>
+      <p>Every add* returns a handle on the row it built. That is what makes a panel that changes shape at runtime possible — and what makes taking one apart safe.</p>
+    </header>
+    <main class="demo">
+      <section class="stage">
+        <div>
+          <h2>Panel contents</h2>
+          <div class="readout" id="state"></div>
+        </div>
+        <div>
+          <h2>Log</h2>
+          <div class="readout log" id="log"></div>
+        </div>
+        <div class="note">
+          <strong>Why destroy() matters:</strong> a row that is only removed from the DOM stays
+          subscribed to its signal, and the subscription keeps the detached row alive. destroy() stops
+          the row's effects first. The counter below tracks live effect count via the panel's own
+          controller list.
+        </div>
+      </section>
+      <aside id="gui-container"></aside>
+    </main>
+    <script type="module" src="./controllers.js"></script>
+    <footer>
+      <span><a href="../">Guspira</a> · <a href="./">all demos</a></span>
+      <span><a href="https://github.com/spite/guspira">GitHub</a> · MIT © Jaume Sanchez Elias</span>
+    </footer>
+    <script type="module" src="../theme.js"></script>
+  </body>
+</html>

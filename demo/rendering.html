@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Guspira — Rendering</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="../css/gui.css" />
+    <link rel="stylesheet" href="../css/site.css" />
+    <style>
+      #canvas {
+        width: 100%;
+        height: 320px;
+        display: block;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #0d0d12;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="page-head">
+      <a class="back" href="./">← all demos</a>
+      <h1>Rendering</h1>
+      <p>
+        Making <code>render()</code> an effect: it re-runs when something it read changes, and a
+        scheduler decides <em>when</em>. In on-demand mode an idle sketch draws nothing at all —
+        the frame loop still turns, but there is no work in the queue.
+      </p>
+    </header>
+    <main class="demo">
+      <section class="stage">
+        <canvas id="canvas"></canvas>
+        <div>
+          <h2>Per second</h2>
+          <div class="readout" id="state"></div>
+        </div>
+        <div>
+          <h2>The loop</h2>
+          <div class="codecard"><div class="bar"><i></i><i></i><i></i><span>loop.js</span></div><pre class="code" id="code"></pre></div>
+        </div>
+        <div class="note">
+          <strong>Try:</strong> in <em>on demand</em> mode, leave it alone — <em>draws</em> falls to
+          zero while frames keep ticking. Drag a slider and it draws only while you drag. Turn
+          <em>Animate</em> on and the time signal makes it dirty every frame, so it goes back to
+          drawing continuously — animating and reacting are the same mechanism.
+        </div>
+      </section>
+      <aside id="gui-container"></aside>
+    </main>
+    <script type="module" src="./rendering.js"></script>
+    <footer>
+      <span><a href="../">Guspira</a> · <a href="./">all demos</a></span>
+      <span><a href="https://github.com/spite/guspira">GitHub</a> · MIT © Jaume Sanchez Elias</span>
+    </footer>
+    <script type="module" src="../theme.js"></script>
+  </body>
+</html>

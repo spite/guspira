@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Guspira — Options</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="../css/gui.css" />
+    <link rel="stylesheet" href="../css/site.css" />
+  </head>
+  <body>
+    <header class="page-head">
+      <a class="back" href="./">← all demos</a>
+      <h1>Options</h1>
+      <p>The trailing options object every control accepts. disabled and visibleWhen are reactive predicates — they re-evaluate themselves, so a rule written once keeps holding.</p>
+    </header>
+    <main class="demo">
+      <section class="stage">
+        <div>
+          <h2>What the panel is doing</h2>
+          <div class="readout" id="state"></div>
+        </div>
+        <div>
+          <h2>onChange fires on user input only</h2>
+          <div class="readout log" id="log"></div>
+        </div>
+        <div class="note">
+          <strong>Try:</strong> switch <em>Mode</em> to <em>manual</em> and watch the auto-only rows
+          disable and the manual section appear. Then press <em>Set from code</em>: the widgets move,
+          but no onChange is logged — programmatic writes are not user input.
+        </div>
+      </section>
+      <aside id="gui-container"></aside>
+    </main>
+    <script type="module" src="./options.js"></script>
+    <footer>
+      <span><a href="../">Guspira</a> · <a href="./">all demos</a></span>
+      <span><a href="https://github.com/spite/guspira">GitHub</a> · MIT © Jaume Sanchez Elias</span>
+    </footer>
+    <script type="module" src="../theme.js"></script>
+  </body>
+</html>

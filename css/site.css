@@ -1,0 +1,704 @@
+@import url("./theme.css");
+
+/* Page design for the landing page and the demos. Nothing here styles the panel — that is
+   css/gui.css, which pages link separately, so it stays obvious which rules belong to the
+   toolkit and which belong to the site around it. */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  overflow-x: clip;
+  background: var(--bg);
+  color: var(--fg);
+  font: 15px/1.6 system-ui, -apple-system, sans-serif;
+  padding: 0 1.25rem 4rem;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+}
+
+main,
+header,
+footer {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+code,
+pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* ---------- hero ---------- */
+
+.hero {
+  position: relative;
+  padding: 4.5rem 0 2.5rem;
+}
+
+/* Full-bleed: the header is a 1100px column, so the glow is pulled out to the width of the
+   viewport and centred on it. `overflow-x: clip` on the body keeps that from producing a
+   horizontal scrollbar without making the page a scroll container. */
+.hero::before {
+  content: "";
+  position: absolute;
+  top: -30%;
+  left: 50%;
+  width: 100vw;
+  transform: translateX(-50%);
+  height: 520px;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(60% 80% at 20% 0%, var(--hero-glow-a), transparent 60%),
+    radial-gradient(50% 70% at 90% 10%, var(--hero-glow-b), transparent 60%);
+  filter: blur(8px);
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 12.5px;
+  letter-spacing: 0.04em;
+  color: var(--dim);
+  background: var(--eyebrow-bg);
+  border: 1px solid var(--chrome-border);
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  margin-bottom: 1.25rem;
+  text-decoration: none;
+}
+
+.eyebrow b {
+  color: var(--accent-text);
+}
+
+.hero h1 {
+  margin: 0;
+  font-size: clamp(34px, 6vw, 56px);
+  line-height: 1.04;
+  letter-spacing: -0.03em;
+}
+
+.hero h1 b {
+  color: var(--accent);
+}
+
+.lede {
+  margin: 1rem 0 0;
+  font-size: clamp(16px, 2.2vw, 20px);
+  color: var(--dim);
+  max-width: 42rem;
+}
+
+.lede strong {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.75rem;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  text-decoration: none;
+  padding: 0.7rem 1.15rem;
+  border-radius: 9px;
+  font-weight: 600;
+  font-size: 14.5px;
+  border: 1px solid transparent;
+  transition: transform 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+}
+
+.btn:hover {
+  transform: translateY(-2px);
+}
+
+.btn.primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.btn.primary:hover {
+  background: var(--accent-hot);
+}
+
+.btn.ghost {
+  background: var(--chrome-btn);
+  border-color: var(--chrome-border);
+  color: var(--fg);
+}
+
+.btn.ghost:hover {
+  border-color: var(--chrome-hover);
+}
+
+/* ---------- code ---------- */
+
+.codecard {
+  margin-bottom: 1.6rem;
+  background: var(--card-deep);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: var(--shadow-soft);
+}
+
+.codecard .bar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0.6rem 0.85rem;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.codecard .bar i {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #333;
+  display: block;
+}
+
+.codecard .bar i:nth-child(1) { background: #ff5f56; }
+.codecard .bar i:nth-child(2) { background: #ffbd2e; }
+.codecard .bar i:nth-child(3) { background: #27c93f; }
+
+.codecard .bar span {
+  margin-left: 0.4rem;
+  font-size: 12px;
+  color: var(--dimmer);
+}
+
+pre.code {
+  margin: 0;
+  padding: 1.1rem 1.25rem 1.55rem;
+  overflow-x: auto;
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--fg);
+}
+
+/* Token colours, applied by the highlighter in demo/shell.js. */
+pre.code .c { color: var(--code-comment); font-style: italic; }
+pre.code .k { color: var(--code-keyword); }
+pre.code .s { color: var(--code-string); }
+pre.code .fn { color: var(--code-fn); }
+pre.code .n { color: var(--code-number); }
+pre.code .hl { color: var(--accent-hot); }
+
+/* ---------- sections ---------- */
+
+section {
+  margin-top: 3.5rem;
+  scroll-margin-top: 1rem;
+}
+
+.kicker {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--dimmer);
+  margin: 0 0 0.35rem;
+  font-weight: 700;
+}
+
+.h2 {
+  margin: 0 0 0.5rem;
+  font-size: clamp(22px, 3.5vw, 30px);
+  letter-spacing: -0.02em;
+  text-transform: none;
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.sub {
+  margin: 0 0 1.6rem;
+  color: var(--dim);
+  max-width: 44rem;
+}
+
+/* two-column pitch: prose on one side, something running on the other */
+
+.pitch {
+  display: grid;
+  gap: 1.75rem;
+  grid-template-columns: 1fr;
+  align-items: start;
+}
+
+@media (min-width: 860px) {
+  .pitch {
+    grid-template-columns: 1fr 1.1fr;
+  }
+  .pitch.narrow {
+    grid-template-columns: 1.15fr 340px;
+  }
+}
+
+.pitch ul {
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pitch li {
+  position: relative;
+  padding-left: 1.6rem;
+  margin: 0.55rem 0;
+  color: var(--fg);
+  opacity: 0.85;
+}
+
+.pitch li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.55em;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--accent);
+  transform: rotate(45deg);
+}
+
+.pitch li b {
+  color: var(--fg);
+  font-weight: 600;
+  opacity: 1;
+}
+
+/* ---------- cards ---------- */
+
+.grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+}
+
+.feat {
+  --h: 220; /* fallback for a card that does not set one */
+  background: hsl(var(--h) var(--tint-bg));
+  border: 1px solid hsl(var(--h) var(--tint-border));
+  border-radius: 12px;
+  padding: 1.15rem 1.2rem;
+}
+
+.feat .ic {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 0.8rem;
+  background: hsl(var(--h) var(--tint-chip));
+  border: 1px solid hsl(var(--h) var(--tint-chip-border));
+}
+
+.feat .ic svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: hsl(var(--h) var(--tint-ink));
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.feat h3 {
+  margin: 0 0 0.3rem;
+  font-size: 15.5px;
+}
+
+.feat p {
+  margin: 0;
+  color: var(--dim);
+  font-size: 13.5px;
+}
+
+/* the pieces the library is made of */
+
+.pieces {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 760px) {
+  .pieces {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.piece {
+  --h: 220;
+  background: hsl(var(--h) var(--tint-bg));
+  border: 1px solid hsl(var(--h) var(--tint-border));
+  border-radius: 12px;
+  padding: 1.2rem;
+}
+
+.piece .tag {
+  display: inline-block;
+  font: 600 11px/1 ui-monospace, monospace;
+  letter-spacing: 0.03em;
+  color: hsl(var(--h) var(--tint-ink));
+  background: hsl(var(--h) var(--tint-chip));
+  border: 1px solid hsl(var(--h) var(--tint-chip-border));
+  padding: 0.3rem 0.5rem;
+  border-radius: 6px;
+  margin-bottom: 0.7rem;
+}
+
+.piece h3 {
+  margin: 0 0 0.35rem;
+  font-size: 16px;
+}
+
+.piece p {
+  margin: 0;
+  color: var(--dim);
+  font-size: 13.5px;
+}
+
+/* chips */
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.45rem 0.9rem;
+  font-size: 13.5px;
+}
+
+.chip b {
+  color: var(--fg);
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+}
+
+.chip span {
+  color: var(--dim);
+  font-size: 12.5px;
+}
+
+/* example cards */
+
+.subhead {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--dimmer);
+  margin: 1.9rem 0 0.9rem;
+  font-weight: 600;
+}
+
+.subhead:first-of-type {
+  margin-top: 0;
+}
+
+.card {
+  --h: 220;
+  display: flex;
+  flex-direction: column;
+  text-decoration: none;
+  color: inherit;
+  background: hsl(var(--h) var(--tint-bg));
+  border: 1px solid hsl(var(--h) var(--tint-border));
+  border-radius: 12px;
+  overflow: hidden;
+  transition: transform 0.12s ease, background 0.12s ease, border-color 0.12s ease,
+    box-shadow 0.12s ease;
+}
+
+.card:hover {
+  transform: translateY(-3px);
+  background: hsl(var(--h) var(--tint-bg-hover));
+  border-color: hsl(var(--h) var(--tint-border-hover));
+  box-shadow: var(--shadow-lift);
+}
+
+.card .ic {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 0.85rem;
+  background: hsl(var(--h) var(--tint-chip));
+  border: 1px solid hsl(var(--h) var(--tint-chip-border));
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.card:hover .ic {
+  background: hsl(var(--h) var(--tint-chip-hover));
+  border-color: hsl(var(--h) var(--tint-chip-border-hover));
+}
+
+.card .ic svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: hsl(var(--h) var(--tint-ink));
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.body {
+  padding: 1.15rem 1.2rem 1.25rem;
+}
+
+.body .tag {
+  display: inline-block;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: hsl(var(--h) var(--tint-ink));
+  background: hsl(var(--h) var(--tint-chip));
+  border: 1px solid hsl(var(--h) var(--tint-chip-border));
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  margin-bottom: 0.5rem;
+}
+
+.body h3 {
+  margin: 0 0 0.25rem;
+  font-size: 16px;
+}
+
+.body p {
+  margin: 0;
+  color: var(--dim);
+  font-size: 13.5px;
+}
+
+/* ---------- demo pages ---------- */
+
+.page-head {
+  padding: 2.5rem 0 1.5rem;
+  border-bottom: 1px solid var(--line-soft);
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.page-head h1 {
+  margin: 0;
+  font-size: clamp(26px, 4vw, 34px);
+  letter-spacing: -0.02em;
+}
+
+.page-head p {
+  margin: 0.6rem 0 0;
+  color: var(--dim);
+  max-width: 46rem;
+}
+
+.back {
+  display: inline-block;
+  margin-bottom: 0.8rem;
+  font-size: 12.5px;
+  color: var(--dim);
+  text-decoration: none;
+}
+
+.back:hover {
+  color: var(--fg);
+}
+
+main.demo {
+  display: grid;
+  gap: 2rem;
+  grid-template-columns: 1fr;
+  padding: 2rem 0 1rem;
+  align-items: start;
+}
+
+@media (min-width: 900px) {
+  main.demo {
+    grid-template-columns: minmax(0, 1fr) 340px;
+  }
+}
+
+.stage {
+  min-width: 0;
+  display: grid;
+  gap: 1.25rem;
+  align-content: start;
+}
+
+#gui-container {
+  position: sticky;
+  top: 1.25rem;
+}
+
+@media (max-width: 899px) {
+  #gui-container {
+    position: static;
+  }
+}
+
+/* the small labels above each block on a demo page — scoped, so the section headings on the
+   landing page are not caught by it */
+.stage h2 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--dimmer);
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+}
+
+.readout {
+  background: var(--card-deep);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.95rem 1.1rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--readout-fg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.65;
+  min-height: 44px;
+  overflow-x: auto;
+}
+
+.log {
+  max-height: 240px;
+  overflow-y: auto;
+  color: var(--fg);
+}
+
+.log .new {
+  color: var(--accent-text);
+}
+
+.note {
+  border-left: 2px solid var(--line);
+  padding-left: 0.95rem;
+  color: var(--dim);
+  max-width: 46rem;
+  font-size: 14px;
+}
+
+.note strong {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+kbd {
+  border: 1px solid var(--chrome-border);
+  border-radius: 4px;
+  padding: 0 5px;
+  background: var(--eyebrow-bg);
+  font: inherit;
+  font-size: 12px;
+}
+
+canvas {
+  border-radius: 12px;
+}
+
+/* the range-slider page's plain form */
+
+form label {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 14px;
+  color: var(--dim);
+}
+
+form range-slider {
+  --gui-track: var(--line);
+  --gui-fill: var(--accent);
+  --gui-thumb: #ffffff;
+  --gui-thumb-hover: #fff3e0;
+}
+
+/* ---------- the live reference grid ---------- */
+
+.ref-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+}
+
+.ref-item {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.ref-item pre.code {
+  padding: 0.7rem 0.9rem 0.95rem;
+  font-size: 12px;
+  border-top: 1px solid var(--line-soft);
+  background: var(--card-deep);
+}
+
+/* A panel with nothing but the row in it — no title bar, no fold, no shadow. The reference
+   shows controls, not panels. */
+.gui.gui-bare {
+  background: transparent;
+  box-shadow: none;
+  padding: 0.85rem 0.95rem;
+  border-radius: 0;
+  --gui-label-width: 128px;
+}
+
+.gui.gui-bare .gui-title {
+  display: none;
+}
+
+.gui.gui-bare .gui-rows {
+  border-top: none;
+  margin-top: 0;
+  padding-top: 0;
+}
+
+/* ---------- footer ---------- */
+
+footer {
+  margin-top: 4rem;
+  padding-top: 1.75rem;
+  border-top: 1px solid var(--line-soft);
+  color: var(--dimmer);
+  font-size: 13.5px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  justify-content: space-between;
+}
+
+footer a {
+  color: var(--dim);
+  text-decoration: none;
+}
+
+footer a:hover {
+  color: var(--fg);
+}

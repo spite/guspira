@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Guspira — Randomize &amp; keyboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="../css/gui.css" />
+    <link rel="stylesheet" href="../css/site.css" />
+  </head>
+  <body>
+    <header class="page-head">
+      <a class="back" href="./">← all demos</a>
+      <h1>Randomize &amp; keyboard</h1>
+      <p>Clicking a control's label rerolls that control. A randomize button rerolls the whole panel, or just what follows it if you ask for that. Both go through a random source you can replace with a seeded one, which makes a reroll reproducible.</p>
+    </header>
+    <main class="demo">
+      <section class="stage">
+        <div>
+          <h2>Current roll</h2>
+          <div class="readout" id="state"></div>
+        </div>
+        <div>
+          <h2>Log</h2>
+          <div class="readout log" id="log"></div>
+        </div>
+        <div class="note">
+          <strong>Try:</strong> press <kbd>R</kbd> to reroll the panel, <kbd>S</kbd> to toggle the seeded source.
+          The second button only touches the controls below it, and the <em>Source</em> rows are marked
+          <code>randomizable: false</code> so no reroll moves them.
+          With the seed on, the same seed always produces the same roll — press <kbd>R</kbd> a few
+          times, set the seed back, and the sequence repeats. Key bindings ignore presses while you are
+          typing in a field: click into <em>Name</em> and press <kbd>R</kbd>.
+        </div>
+      </section>
+      <aside id="gui-container"></aside>
+    </main>
+    <script type="module" src="./randomize.js"></script>
+    <footer>
+      <span><a href="../">Guspira</a> · <a href="./">all demos</a></span>
+      <span><a href="https://github.com/spite/guspira">GitHub</a> · MIT © Jaume Sanchez Elias</span>
+    </footer>
+    <script type="module" src="../theme.js"></script>
+  </body>
+</html>

@@ -1,0 +1,505 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Guspira — a reactive GUI toolkit for creative coding</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="A small GUI toolkit built on signals. The control is bound to the value, not a copy of it."
+    />
+    <link rel="stylesheet" href="./css/gui.css" />
+    <link rel="stylesheet" href="./css/site.css" />
+  </head>
+  <body>
+    <header class="hero">
+      <span class="eyebrow"><b>Guspira</b> · a reactive GUI toolkit for sketches</span>
+      <h1>Controls that <b>are</b> the state.</h1>
+      <p class="lede">
+        Every control is bound to a <strong>signal</strong>, and the signal is the value. Move the
+        slider and it updates. Set it from code and the slider moves. There is no third thing keeping
+        the two in step — which is most of what a GUI library usually is.
+      </p>
+      <div class="cta">
+        <a class="btn primary" href="#examples">Browse the demos ↓</a>
+        <a class="btn ghost" href="./demo/warp.html">The full sketch</a>
+        <a class="btn ghost" href="https://github.com/spite/guspira">GitHub</a>
+        <a class="btn ghost" href="./test/">Tests</a>
+      </div>
+    </header>
+
+    <main>
+      <!-- ---------- the idea ---------- -->
+      <section id="idea">
+        <p class="kicker">The idea</p>
+        <h2 class="h2">One value, not two.</h2>
+        <p class="sub">
+          A GUI that binds to a plain object has to invent a controller: something that owns the
+          value, so it can tell the widget when you change it from code. That controller then
+          becomes the only way to reach the value, and every feature — presets, links, undo,
+          randomising — has to be built through it.
+        </p>
+        <div class="pitch">
+          <div class="codecard">
+            <div class="bar"><i></i><i></i><i></i><span>with a controller</span></div>
+            <pre class="code">const c = gui.add(obj, "count", 10, 2000);
+c.onChange(v => rebuild());
+
+obj.count = 800;
+c.updateDisplay();   // ...and you must remember this</pre>
+          </div>
+          <div class="codecard">
+            <div class="bar"><i></i><i></i><i></i><span>with a signal</span></div>
+            <pre class="code">gui.addSlider("Count", count, 10, 2000, 10);
+effect(() => rebuild(count()));
+
+count.set(800);      // the widget already moved</pre>
+          </div>
+        </div>
+        <p class="sub" style="margin-top: 1.6rem">
+          Because the value <em>is</em> the shared thing, everything else is written against signals
+          rather than against the GUI. A preset is a batch of writes. A shareable link is those
+          values serialised. A randomiser writes new ones. The panel finds out the same way your
+          sketch does.
+        </p>
+      </section>
+
+      <!-- ---------- the pieces ---------- -->
+      <section id="pieces">
+        <p class="kicker">What it is made of</p>
+        <h2 class="h2">Three pieces, each usable on its own.</h2>
+        <p class="sub">
+          The signals layer has no DOM dependency and runs in node. The panel is built on it. The
+          scheduler sits between them and decides when work happens.
+        </p>
+        <div class="pieces">
+          <div class="piece" style="--h: 200">
+            <span class="tag">reactive.js</span>
+            <h3>Owns the state</h3>
+            <p>
+              <code>signal</code>, <code>computed</code>, <code>effect</code>, <code>batch</code>,
+              <code>tweened</code>. No imports and no DOM, so it runs in a worker, in node, or in a
+              sketch with no panel at all.
+            </p>
+          </div>
+          <div class="piece" style="--h: 28">
+            <span class="tag">gui.js</span>
+            <h3>Owns the panel</h3>
+            <p>
+              Fifteen controls, tabs, folding sections, presets and persistence. Every
+              <code>add*</code> hands back a handle on the row it built.
+            </p>
+          </div>
+          <div class="piece" style="--h: 150">
+            <span class="tag">createScheduler</span>
+            <h3>Owns the timing</h3>
+            <p>
+              A queue your render loop flushes where it likes, so reactive work lands in a defined
+              place in the frame instead of racing it.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- signals ---------- -->
+      <section id="signals">
+        <p class="kicker">Part one · state</p>
+        <h2 class="h2">A signal is a value you can subscribe to.</h2>
+        <div class="pitch narrow">
+          <div>
+            <p class="sub">
+              Reading a signal inside an <code>effect</code> subscribes that effect — automatically,
+              every time it runs. There is no dependency array to declare, and none to forget.
+            </p>
+            <div class="codecard">
+              <div class="bar"><i></i><i></i><i></i><span>sketch.js</span></div>
+              <pre class="code">import { signal, computed, effect } from "guspira/reactive";
+
+const width  = signal(4);
+const height = signal(3);
+
+// derived — recomputed when either input changes
+const area = computed(() => width() * height());
+
+// runs now, and again on every change to what it read
+effect(() => {
+  console.log(`${width()} x ${height()} = ${area()}`);
+});
+
+width.set(10);   // the effect re-runs, once</pre>
+            </div>
+            <ul>
+              <li>
+                <b>Dependencies are discovered, not declared.</b> Re-discovered on every run, so a
+                branch that stops reading a signal stops re-running for it.
+              </li>
+              <li>
+                <b>Writing the same value costs nothing.</b> Signals compare before notifying, arrays
+                element-wise — a range slider handing back a fresh <code>[min, max]</code> on every
+                pointer move only wakes effects when the numbers moved.
+              </li>
+              <li>
+                <b>One write, one pass.</b> An effect reading both a signal and something derived
+                from it runs once, not once per level, and never sees a half-updated value.
+              </li>
+              <li>
+                <b>Effects can clean up.</b> Return a function and it runs before the next run and on
+                stop — the listener you added, the timer you started.
+              </li>
+              <li>
+                <b>It fails loudly.</b> An effect that throws is reported and skipped rather than
+                taking the rest of the pass with it; one that writes what it reads is named, not left
+                to overflow the stack.
+              </li>
+            </ul>
+          </div>
+          <div>
+            <div class="readout" id="signals-out"></div>
+            <div id="signals-gui" style="margin-top: 1rem"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- the panel ---------- -->
+      <section id="panel">
+        <p class="kicker">Part two · the panel</p>
+        <h2 class="h2">Every control is bound to one of them.</h2>
+        <div class="pitch narrow">
+          <div>
+            <p class="sub">
+              That one decision removes the layer other GUI libraries spend their code on: no
+              controller object holding a second value, no <code>listen()</code>, no
+              <code>updateDisplay()</code> after you change something yourself.
+            </p>
+            <div class="codecard">
+              <div class="bar"><i></i><i></i><i></i><span>panel.js</span></div>
+              <pre class="code">const params = {
+  count: signal(28),
+  shape: signal("ring"),
+  tint:  signal("#ffb347"),
+};
+
+const gui = new GUI("Sketch");
+gui.addSlider("Count", params.count, 1, 200, 1);
+gui.addSelect("Shape", params.shape, ["ring", "grid"]);
+gui.addColor("Tint", params.tint);
+
+// the sketch reads the same signals — that is the whole wiring
+effect(() => draw(params));</pre>
+            </div>
+            <div class="readout" id="gui-out" style="margin-top: 1rem"></div>
+          </div>
+          <div id="panel-gui"></div>
+        </div>
+      </section>
+
+      <!-- ---------- features ---------- -->
+      <section id="features">
+        <p class="kicker">What's in the box</p>
+        <h2 class="h2">Everything a sketch panel ends up needing.</h2>
+        <div class="grid">
+          <div class="feat" style="--h: 28">
+            <div class="ic">
+              <svg viewBox="0 0 24 24"><path d="M3 8h18M3 16h18" /><circle cx="9" cy="8" r="2.5" /><circle cx="16" cy="16" r="2.5" /></svg>
+            </div>
+            <h3>Fifteen controls</h3>
+            <p>Sliders, dual ranges, selects, colours, text, numbers, monitors, buttons, file pickers.</p>
+          </div>
+          <div class="feat" style="--h: 200">
+            <div class="ic">
+              <svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="14" rx="2" /><path d="M3 7l3-4h5l2 4" /></svg>
+            </div>
+            <h3>Tabs and folding sections</h3>
+            <p>Grouped, able to hide themselves from a predicate, and remembered between reloads.</p>
+          </div>
+          <div class="feat" style="--h: 150">
+            <div class="ic">
+              <svg viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="3" /><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6" /><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" /></svg>
+            </div>
+            <h3>Presets and persistence</h3>
+            <p>A typed store that survives a reload, rejects junk, exports to JSON and travels in a link.</p>
+          </div>
+          <div class="feat" style="--h: 348">
+            <div class="ic">
+              <svg viewBox="0 0 24 24"><path d="M4 20l7-7M14 4l6 6-9 9H5v-6z" /></svg>
+            </div>
+            <h3>Themed by variables</h3>
+            <p>Every colour and metric is a CSS custom property, so a theme is an override, not a fork.</p>
+          </div>
+          <div class="feat" style="--h: 270">
+            <div class="ic">
+              <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="4" /><circle cx="8.5" cy="8.5" r="1.4" /><circle cx="15.5" cy="15.5" r="1.4" /><circle cx="12" cy="12" r="1.4" /></svg>
+            </div>
+            <h3>Randomize anything</h3>
+            <p>Click a label to reroll it, a button or a key for the panel — from a source you can seed.</p>
+          </div>
+          <div class="feat" style="--h: 105">
+            <div class="ic">
+              <svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8" /></svg>
+            </div>
+            <h3>Keyboard shortcuts</h3>
+            <p><code>bindKey</code> ignores presses while you are typing, and never steals Ctrl or Cmd.</p>
+          </div>
+          <div class="feat" style="--h: 320">
+            <div class="ic">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M12 12V7M12 12l4 2" /></svg>
+            </div>
+            <h3>Render on demand</h3>
+            <p>Make <code>render()</code> an effect on a queue you flush, and an idle sketch draws nothing.</p>
+          </div>
+          <div class="feat" style="--h: 172">
+            <div class="ic">
+              <svg viewBox="0 0 24 24"><path d="M3 18c4 0 5-12 9-12s5 6 9 6" /></svg>
+            </div>
+            <h3>Values that travel</h3>
+            <p><code>tweened</code> eases instead of jumping, so a preset morphs into place. Eight easings ship.</p>
+          </div>
+          <div class="feat" style="--h: 90">
+            <div class="ic">
+              <svg viewBox="0 0 24 24"><path d="M8 5H5v14h3M16 5h3v14h-3M9 12h6M12 9v6" /></svg>
+            </div>
+            <h3>Custom controls</h3>
+            <p><code>createRow</code>, <code>bind</code>, <code>onDestroy</code> and a <code>.gui-control</code> class — yours behaves like a built-in.</p>
+          </div>
+          <div class="feat" style="--h: 40">
+            <div class="ic">
+              <svg viewBox="0 0 24 24"><path d="M2 12h20" /><circle cx="8" cy="12" r="3" /><circle cx="16" cy="12" r="3" /></svg>
+            </div>
+            <h3>A slider you can use alone</h3>
+            <p><code>&lt;range-slider&gt;</code> is a form-associated custom element — single or dual, keyboard and all.</p>
+          </div>
+          <div class="feat" style="--h: 0">
+            <div class="ic">
+              <svg viewBox="0 0 24 24"><path d="M12 3v10M8 9l4 4 4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" /></svg>
+            </div>
+            <h3>Tested, not just shipped</h3>
+            <p>Node suites for the core, browser assertions driving real drags and keys, and every page loaded and checked.</p>
+          </div>
+          <div class="feat" style="--h: 210">
+            <div class="ic">
+              <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6" rx="2" /><rect x="3" y="14" width="18" height="6" rx="2" /><path d="M9 17h6" /></svg>
+            </div>
+            <h3>Panels that change shape</h3>
+            <p>Add and destroy rows while the sketch runs — the handle takes the row's effects with it.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- reference ---------- -->
+      <section id="controls">
+        <p class="kicker">Reference</p>
+        <h2 class="h2">Every control, running.</h2>
+        <p class="sub">
+          Each one takes a label and a signal, then whatever that control needs. These are not
+          pictures — every row below is a real control bound to a real signal, built by the line
+          underneath it.
+        </p>
+
+        <div class="ref-grid" id="reference"></div>
+
+        <div class="pitch" style="margin-top: 2rem">
+          <div>
+            <p class="sub">
+              Any control also takes a trailing options object. The two state options come in
+              pairs — <code>disabled</code> / <code>disabledWhen</code> and <code>visible</code> /
+              <code>visibleWhen</code> — and both names take either a boolean for a state that never
+              changes or a predicate for one that does. A predicate re-evaluates whenever anything
+              it reads changes, so the rule lives in one place instead of in every handler that
+              might affect it.
+            </p>
+            <ul>
+              <li><b>onChange</b> — user input only; a write from code does not fire it.</li>
+              <li><b>disabled / disabledWhen</b> — greys the row out and stops it responding.</li>
+              <li><b>visible / visibleWhen</b> — removes the row entirely while false.</li>
+              <li><b>randomizable: false</b> — keeps a value out of rerolls.</li>
+              <li><b>title</b> — the tooltip on the label.</li>
+            </ul>
+          </div>
+          <div class="codecard">
+            <div class="bar"><i></i><i></i><i></i><span>options.js</span></div>
+            <pre class="code">gui.addSlider("ISO", params.iso, 50, 6400, 50, {
+  onChange: () => rebuild(),
+  disabledWhen: () => params.mode() === "auto",   // a rule
+  title: "Only in manual mode",
+});
+
+gui.addSlider("Build", params.build, 0, 9, 1, {
+  disabled: true,                                 // a fact
+});
+
+gui.addSection("Manual", {
+  visibleWhen: () => params.mode() === "manual",
+});</pre>
+          </div>
+        </div>
+
+        <p class="sub" style="margin-top: 1.8rem">
+          And around the edges: <code>addTab</code> and <code>addSection</code> to arrange them,
+          <code>into</code> to add to one later, <code>addPresets</code> for the whole
+          save/load/export panel, <code>createParams</code> and <code>createPresetStore</code> for
+          the state behind it, <code>bindKey</code> for shortcuts, and <code>setRandomSource</code>
+          when a reroll needs to be reproducible.
+        </p>
+      </section>
+
+      <!-- ---------- examples ---------- -->
+      <section id="examples">
+        <p class="kicker">See it work</p>
+        <h2 class="h2">Demos</h2>
+        <p class="sub">
+          One page per part of the toolkit, each with its panel beside it and its source in
+          <code>demo/&lt;name&gt;.js</code>, which is meant to be read.
+        </p>
+
+        <p class="subhead">Start here</p>
+        <div class="grid">
+          <a class="card" href="./demo/warp.html" style="--h: 28">
+            <div class="body">
+              <div class="ic"><svg viewBox="0 0 48 48"><path d="M4 30q8-14 14-4t8-14 10 8 8-6" /><path d="M4 40q8-14 14-4t8-14 10 8 8-6" /><path d="M4 20q8-14 14-4t8-14 10 8 8-6" /></svg></div>
+              <span class="tag">Everything</span>
+              <h3>Warp field</h3>
+              <p>A domain-warped noise field on the GPU — every control is a uniform, so the whole image answers on the next frame.</p>
+            </div>
+          </a>
+
+          <a class="card" href="./demo/controls.html" style="--h: 200">
+            <div class="body">
+              <div class="ic"><svg viewBox="0 0 48 48"><path d="M6 16h36M6 32h36" /><circle cx="18" cy="16" r="5" /><circle cx="32" cy="32" r="5" /></svg></div>
+              <span class="tag">Reference</span>
+              <h3>Controls</h3>
+              <p>Every control the panel ships, each beside the signal it is bound to.</p>
+            </div>
+          </a>
+          <a class="card" href="./demo/options.html" style="--h: 150">
+            <div class="body">
+              <div class="ic"><svg viewBox="0 0 48 48"><path d="M10 14h28M10 24h28M10 34h16" /><circle cx="38" cy="34" r="4" /></svg></div>
+              <span class="tag">Predicates</span>
+              <h3>Options</h3>
+              <p>Rows that disable and hide themselves, and what does not count as user input.</p>
+            </div>
+          </a>
+        </div>
+
+        <p class="subhead">Building a panel</p>
+        <div class="grid">
+          <a class="card" href="./demo/structure.html" style="--h: 210">
+            <div class="body">
+              <div class="ic"><svg viewBox="0 0 48 48"><rect x="6" y="10" width="36" height="28" rx="3" /><path d="M6 20h36M18 10v28" /></svg></div>
+              <span class="tag">Layout</span>
+              <h3>Tabs &amp; sections</h3>
+              <p>Grouping, folding, conditional sections, and a layout the panel remembers.</p>
+            </div>
+          </a>
+          <a class="card" href="./demo/controllers.html" style="--h: 262">
+            <div class="body">
+              <div class="ic"><svg viewBox="0 0 48 48"><rect x="7" y="9" width="34" height="8" rx="2" /><rect x="7" y="21" width="34" height="8" rx="2" /><path d="M14 37h20" /></svg></div>
+              <span class="tag">Runtime</span>
+              <h3>Controllers</h3>
+              <p>Adding and destroying rows while the sketch runs, without leaking their effects.</p>
+            </div>
+          </a>
+          <a class="card" href="./demo/extending.html" style="--h: 90">
+            <div class="body">
+              <div class="ic"><svg viewBox="0 0 48 48"><path d="M14 8H8v32h6M34 8h6v32h-6M18 24h12M24 18v12" /></svg></div>
+              <span class="tag">Custom</span>
+              <h3>Extending</h3>
+              <p>A vector row and an XY pad built from scratch, behaving like built-ins.</p>
+            </div>
+          </a>
+          <a class="card" href="./demo/theming.html" style="--h: 348">
+            <div class="body">
+              <div class="ic"><svg viewBox="0 0 48 48"><path d="M8 40l14-14M28 8l12 12-18 18H10V26z" /></svg></div>
+              <span class="tag">CSS</span>
+              <h3>Theming</h3>
+              <p>Restyle the panel live — every colour and metric is a custom property.</p>
+            </div>
+          </a>
+        </div>
+
+        <p class="subhead">State, time and data</p>
+        <div class="grid">
+          <a class="card" href="./demo/reactivity.html" style="--h: 172">
+            <div class="body">
+              <div class="ic"><svg viewBox="0 0 48 48"><path d="M6 30q10-18 20 0t16-6" /><circle cx="6" cy="30" r="3" /><circle cx="42" cy="24" r="3" /></svg></div>
+              <span class="tag">Signals</span>
+              <h3>Reactivity</h3>
+              <p>Computed values, batching, untracked reads and tweens — every run counted.</p>
+            </div>
+          </a>
+          <a class="card" href="./demo/easing.html" style="--h: 300">
+            <div class="body">
+              <div class="ic"><svg viewBox="0 0 48 48"><path d="M5 38C15 38 17 10 27 10s12 14 16 14" /><circle cx="5" cy="38" r="3" /><circle cx="43" cy="24" r="3" /></svg></div>
+              <span class="tag">Tweens</span>
+              <h3>Values that travel</h3>
+              <p>The panel shows where you put a value; your code reads where it currently is.</p>
+            </div>
+          </a>
+
+          <a class="card" href="./demo/rendering.html" style="--h: 320">
+            <div class="body">
+              <div class="ic"><svg viewBox="0 0 48 48"><circle cx="24" cy="24" r="17" /><path d="M24 24V13M24 24l8 5" /></svg></div>
+              <span class="tag">Scheduling</span>
+              <h3>Rendering</h3>
+              <p>render() as an effect: draw only when something changed, where the loop says.</p>
+            </div>
+          </a>
+          <a class="card" href="./demo/persistence.html" style="--h: 190">
+            <div class="body">
+              <div class="ic"><svg viewBox="0 0 48 48"><ellipse cx="24" cy="13" rx="16" ry="6" /><path d="M8 13v22c0 3 7 6 16 6s16-3 16-6V13" /><path d="M8 24c0 3 7 6 16 6s16-3 16-6" /></svg></div>
+              <span class="tag">Storage</span>
+              <h3>Params &amp; persistence</h3>
+              <p>A typed store that survives reloads, rejects junk and travels in a query string.</p>
+            </div>
+          </a>
+          <a class="card" href="./demo/presets.html" style="--h: 130">
+            <div class="body">
+              <div class="ic"><svg viewBox="0 0 48 48"><path d="M10 6h20l8 8v28H10z" /><path d="M18 22h12M18 30h12" /></svg></div>
+              <span class="tag">Presets</span>
+              <h3>Presets</h3>
+              <p>Built-in looks, saved looks, and the same JSON going out to a file and back.</p>
+            </div>
+          </a>
+        </div>
+
+        <p class="subhead">Input</p>
+        <div class="grid">
+          <a class="card" href="./demo/randomize.html" style="--h: 270">
+            <div class="body">
+              <div class="ic"><svg viewBox="0 0 48 48"><rect x="7" y="7" width="34" height="34" rx="5" /><circle cx="17" cy="17" r="2.5" /><circle cx="31" cy="31" r="2.5" /><circle cx="24" cy="24" r="2.5" /></svg></div>
+              <span class="tag">Random</span>
+              <h3>Randomize &amp; keyboard</h3>
+              <p>Label rerolls, key bindings, and a seeded source that repeats exactly.</p>
+            </div>
+          </a>
+          <a class="card" href="./demo/range-slider.html" style="--h: 40">
+            <div class="body">
+              <div class="ic"><svg viewBox="0 0 48 48"><path d="M5 24h38" /><circle cx="17" cy="24" r="6" /><circle cx="33" cy="24" r="6" /></svg></div>
+              <span class="tag">Element</span>
+              <h3>&lt;range-slider&gt;</h3>
+              <p>The slider on its own, in a plain HTML form, read with FormData.</p>
+            </div>
+          </a>
+          <a class="card" href="./test/" style="--h: 105">
+            <div class="body">
+              <div class="ic"><svg viewBox="0 0 48 48"><path d="M12 42V6h24v36z" /><path d="M19 20l4 4 8-8" /><path d="M19 32h10" /></svg></div>
+              <span class="tag">Tests</span>
+              <h3>Browser suite</h3>
+              <p>Real events driving a real panel — drags, keys, folding, destroy.</p>
+            </div>
+          </a>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <span>A reactive GUI toolkit for creative-coding sketches</span>
+      <span>
+        <a href="./README.md">Docs</a> · <a href="./demo/">Demos</a> ·
+        <a href="https://github.com/spite/guspira">GitHub</a> · MIT © Jaume Sanchez Elias
+      </span>
+    </footer>
+
+    <script type="module" src="./landing.js"></script>
+    <script type="module" src="./theme.js"></script>
+  </body>
+</html>
