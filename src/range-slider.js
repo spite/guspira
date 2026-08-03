@@ -4,6 +4,7 @@
 // boundary like any other inherited property, with dark-theme fallbacks baked in.
 
 import { snap } from "./format.js";
+import { normalizeCurve, assertCurveRange, curveToValue, valueToCurve } from "./curve.js";
 
 class RangeSlider extends HTMLElement {
   static formAssociated = true;
@@ -19,6 +20,7 @@ class RangeSlider extends HTMLElement {
     this._min = 0;
     this._max = 100;
     this._step = 1;
+    this._curve = 1;
     this._valMin = 0;
     this._valMax = 50;
     this._syncingAttribute = false;
@@ -30,7 +32,7 @@ class RangeSlider extends HTMLElement {
   }
 
   static get observedAttributes() {
-    return ["min", "max", "step", "value", "dual", "disabled"];
+    return ["min", "max", "step", "value", "dual", "disabled", "curve"];
   }
 
   get template() {
@@ -155,6 +157,7 @@ class RangeSlider extends HTMLElement {
     if (!this.hasAttribute("tabindex")) this.setAttribute("tabindex", "0");
     if (!this.hasAttribute("role")) this.setAttribute("role", "slider");
 
+    assertCurveRange(this._curve, this._min, this._max);
     this.updateUI();
     this.addEventListeners();
   }
@@ -179,6 +182,9 @@ class RangeSlider extends HTMLElement {
         break;
       case "step":
         this._step = parseFloat(newValue);
+        break;
+      case "curve":
+        this._curve = normalizeCurve(newValue);
         break;
       case "value":
         if (newValue === null) break;
@@ -321,13 +327,12 @@ class RangeSlider extends HTMLElement {
   }
 
   percentageToValue(percentage) {
-    return this._min + percentage * (this._max - this._min);
+    return curveToValue(percentage, this._min, this._max, this._curve);
   }
 
+  // Returns 0..100: it feeds CSS `left`, which is where it has always gone.
   valueToPercentage(value) {
-    const span = this._max - this._min;
-    if (!span) return 0;
-    return ((value - this._min) / span) * 100;
+    return valueToCurve(value, this._min, this._max, this._curve) * 100;
   }
 
   updateUI() {
@@ -411,6 +416,16 @@ class RangeSlider extends HTMLElement {
 
   set step(value) {
     this._step = parseFloat(value);
+    this.updateUI();
+  }
+
+  get curve() {
+    return this._curve;
+  }
+
+  set curve(value) {
+    this._curve = normalizeCurve(value);
+    assertCurveRange(this._curve, this._min, this._max);
     this.updateUI();
   }
 }

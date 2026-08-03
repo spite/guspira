@@ -38,14 +38,20 @@ gui.addSlider("Exposure", exposure, 0, 4, 0.05, {
 
 // `disabledWhen` and `visibleWhen` are the predicate spellings; `disabled` and `visible`
 // take a plain boolean for a state that never changes. Either name accepts either kind.
+// ISO is a ratio, so the track is one: `curve: "log"` gives every doubling the same width,
+// where a linear track would bunch everything under 800 into the first tenth of it.
 gui.addSlider("ISO", iso, 50, 6400, 50, {
+  curve: "log",
   disabledWhen: () => locked() || isAuto(),
-  title: "Disabled while the mode is auto",
+  title: "curve: \"log\" — equal distance per stop",
 });
 gui.addSlider("Always off", signal(1), 0, 2, 0.1, {
   disabled: true, // a constant, not a rule
   title: "disabled: true — no predicate needed",
 });
+// `visible` is the same idea for presence: a constant where `visibleWhen` takes a rule. This
+// row is built and never shown, which is the point — it costs a line to keep, not a branch.
+gui.addSlider("Never shown", signal(1), 0, 2, 0.1, { visible: false });
 
 // `visibleWhen` removes the row entirely rather than dimming it.
 gui.addSection("Manual settings", { visibleWhen: () => mode() === "manual" });
@@ -57,7 +63,12 @@ gui.addSeparator();
 
 // `randomizable: false` keeps a control out of label-click and panel-wide rerolls — for
 // values that are not a matter of taste.
-gui.addNumber("Seed", seed, { randomizable: false, title: "Not randomizable" });
+// `scrub: false` takes away drag-to-change, for a value that should only ever be typed.
+gui.addNumber("Seed", seed, {
+  randomizable: false,
+  scrub: false,
+  title: "Not randomizable, and not scrubbable",
+});
 gui.addRandomizeButton("Randomize", () => log(`${stamp()} rerolled (seed untouched)`));
 
 // Programmatic writes move the widgets but are not user input, so onChange does not fire.

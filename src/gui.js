@@ -7,7 +7,8 @@
 import { signal, effect, toSignal } from "./reactive.js";
 import { formatFloat, snap } from "./format.js";
 import "./range-slider.js";
-import { randomInRange, randomElement, randomHexColor, randomBool } from "./random.js";
+import { normalizeCurve, assertCurveRange, curveToValue } from "./curve.js";
+import { random, randomInRange, randomElement, randomHexColor, randomBool } from "./random.js";
 import { bindKey } from "./keyboard.js";
 
 const CHEVRON = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>`;
@@ -31,6 +32,88 @@ function condition(...candidates) {
     return typeof value === "function" ? value : () => value;
   }
   return null;
+}
+
+// Dragging a number field sideways to change it — what a slider gives you for free and a bare
+// number box does not, which matters most for a vector, where there is no track to drag.
+//
+// A press that never travels is left alone, so clicking to type still works; only once the
+// pointer has moved past a few pixels does it become a drag. The default action of the press is
+// suppressed until then, because focusing the field would start selecting its text under the
+// same movement — and a field already being edited is left alone entirely, so selecting a digit
+// with the mouse still does what it looks like.
+//
+// Returns a teardown, for the row that owns the field to call.
+const SCRUB_THRESHOLD = 3;
+
+function makeScrubbable(input, { step, onScrub, enabled }) {
+  let origin = null;
+  let scrubbing = false;
+
+  input.classList.add("gui-scrubbable");
+
+  const down = (e) => {
+    if (e.button !== 0 || !enabled() || document.activeElement === input) return;
+    e.preventDefault();
+    origin = { x: e.clientX, value: parseFloat(input.value) || 0 };
+    scrubbing = false;
+  };
+
+  const move = (e) => {
+    if (!origin) return;
+    const dx = e.clientX - origin.x;
+    if (!scrubbing) {
+      if (Math.abs(dx) < SCRUB_THRESHOLD) return;
+      scrubbing = true;
+      // Synthetic events in a test have no live pointer to capture; the drag still works
+      // through the listeners below, so a refusal here is not worth failing over.
+      try {
+        input.setPointerCapture(e.pointerId);
+      } catch {}
+      document.body.classList.add("gui-scrubbing");
+    }
+    // Measured from where the press began rather than accumulated per event, so a long drag
+    // cannot creep away from the pointer through rounding.
+    onScrub(origin.value + dx * step() * (e.shiftKey ? 10 : 1));
+  };
+
+  const up = (e) => {
+    if (!origin) return;
+    try {
+      if (input.hasPointerCapture(e.pointerId)) input.releasePointerCapture(e.pointerId);
+    } catch {}
+    // It never travelled, so it was a click: hand over to typing, with the old value selected
+    // so the first keystroke replaces it.
+    if (!scrubbing) {
+      input.focus();
+      input.select();
+    }
+    origin = null;
+    scrubbing = false;
+    document.body.classList.remove("gui-scrubbing");
+  };
+
+  input.addEventListener("pointerdown", down);
+  input.addEventListener("pointermove", move);
+  input.addEventListener("pointerup", up);
+  input.addEventListener("pointercancel", up);
+
+  return () => {
+    input.removeEventListener("pointerdown", down);
+    input.removeEventListener("pointermove", move);
+    input.removeEventListener("pointerup", up);
+    input.removeEventListener("pointercancel", up);
+    document.body.classList.remove("gui-scrubbing");
+  };
+}
+
+// How much one pixel of drag is worth. An explicit step is the obvious answer; without one,
+// a stated range divided into a few hundred pixels keeps a whole sweep within a hand's reach,
+// and a bare number with no range at all counts in ones.
+function scrubStepFor(step, min, max) {
+  if (step !== undefined) return step;
+  if (min !== undefined && max !== undefined) return (max - min) / 200;
+  return 1;
 }
 
 // A control shows where the value was put, not where an animation currently is: reading the
@@ -670,10 +753,15 @@ class GUI {
   addSlider(label, value, min, max, step, a) {
     const opts = readOptions(a);
     const sig = toSignal(value);
+    const curve = normalizeCurve(opts.curve);
+    assertCurveRange(curve, min, max, "addSlider");
     const controller = this.createRow(label, opts);
 
+    // Rolled along the track rather than across the values. On a log slider from 20 to 20000
+    // a uniform roll of the value lands above 2kHz nine times in ten — uniform, and useless.
+    // Rolling the track position instead respects the curve that was asked for.
     this._randomizable(controller, () => {
-      sig.set(snap(randomInRange(min, max), step, min, max));
+      sig.set(snap(curveToValue(random(), min, max, curve), step, min, max));
       opts.onChange && opts.onChange(sig());
     }, opts);
 
@@ -685,6 +773,8 @@ class GUI {
     input.min = min;
     input.max = max;
     input.step = step;
+    // After min/max, so the element can check a log range against them.
+    if (curve !== 1) input.curve = curve;
     input.oninput = () => {
       const v = parseFloat(input.value);
       sig.set(v);
@@ -760,11 +850,16 @@ class GUI {
   addRangeSlider(label, value, min, max, step, a) {
     const opts = readOptions(a);
     const sig = toSignal(value);
+    const curve = normalizeCurve(opts.curve);
+    assertCurveRange(curve, min, max, "addRangeSlider");
     const controller = this.createRow(label, opts);
 
+    // Both ends rolled along the track, for the same reason a single slider is.
     this._randomizable(controller, () => {
-      const lo = snap(randomInRange(min, max), step, min, max);
-      const hi = snap(randomInRange(lo, max), step, min, max);
+      const first = random();
+      const second = random();
+      const lo = snap(curveToValue(Math.min(first, second), min, max, curve), step, min, max);
+      const hi = snap(curveToValue(Math.max(first, second), min, max, curve), step, min, max);
       sig.set([lo, hi]);
       opts.onChange && opts.onChange(sig());
     }, opts);
@@ -778,6 +873,7 @@ class GUI {
     input.min = min;
     input.max = max;
     input.step = step;
+    if (curve !== 1) input.curve = curve;
     input.oninput = () => {
       const [lo, hi] = input.value;
       sig.set([parseFloat(lo), parseFloat(hi)]);
@@ -863,12 +959,27 @@ class GUI {
     if (opts.min !== undefined) input.min = opts.min;
     if (opts.max !== undefined) input.max = opts.max;
     if (opts.step !== undefined) input.step = opts.step;
-    input.oninput = () => {
-      const v = parseFloat(input.value);
-      if (!isFinite(v)) return;
+    const commit = (v) => {
       sig.set(v);
       opts.onChange && opts.onChange(v);
     };
+
+    input.oninput = () => {
+      const v = parseFloat(input.value);
+      if (!isFinite(v)) return;
+      commit(v);
+    };
+
+    if (opts.scrub !== false) {
+      controller.onDestroy(
+        makeScrubbable(input, {
+          step: () => scrubStepFor(opts.step, opts.min, opts.max),
+          enabled: () => !controller.row.classList.contains("disabled"),
+          onScrub: (v) =>
+            commit(snap(v, scrubStepFor(opts.step, opts.min, opts.max), opts.min ?? -Infinity, opts.max ?? Infinity)),
+        })
+      );
+    }
 
     controller.bind(() => {
       const v = targetOf(sig)();
@@ -938,6 +1049,19 @@ class GUI {
         const v = parseFloat(input.value);
         if (isFinite(v)) commit(i, v);
       };
+
+      // The reason scrubbing exists: a vector has no track to drag, so without this its axes
+      // could only be typed into.
+      if (opts.scrub !== false) {
+        controller.onDestroy(
+          makeScrubbable(input, {
+            step: () => scrubStepFor(step, min, max),
+            enabled: () => !controller.row.classList.contains("disabled"),
+            onScrub: (v) => commit(i, v),
+          })
+        );
+      }
+
       wrap.append(input);
       return input;
     });

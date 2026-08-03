@@ -45,15 +45,23 @@ const exports = [
 const OPTIONS = [
   "onChange", "disabled", "disabledWhen", "visible", "visibleWhen", "randomizable", "title",
   "format", "placeholder",
-  "accept", "collapsible", "open", "storageKey", "className", "visible", "expanded",
+  "accept", "collapsible", "open", "storageKey", "className", "expanded",
   "onBeforeRandomize", "migrate", "exclude", "url", "builtin", "lazy", "scheduler", "key",
+  "axes", "invertY", "height", "scrub", "curve",
 ];
 
 let failures = 0;
+// An option counts as demonstrated when a demo passes it — `curve: "log"` or curve="log" —
+// not when the word merely appears. Matching the bare word let `curve` pass on the sentence
+// "the curve the value is following" in a comment, which is exactly the false comfort this
+// suite exists to prevent. Everything else is matched as a call or an identifier.
+const usage = (kind, name) =>
+  kind === "options"
+    ? new RegExp(`\\b${name}\\s*:|\\b${name}=`)
+    : new RegExp(`\\b${name}\\b`);
+
 const check = (kind, names) => {
-  const missing = names.filter(
-    (name) => !ALLOWED[name] && !new RegExp(`\\b${name}\\b`).test(examples)
-  );
+  const missing = names.filter((name) => !ALLOWED[name] && !usage(kind, name).test(examples));
   const skipped = names.filter((name) => ALLOWED[name]);
   console.log(
     `  ${missing.length ? "FAIL" : "ok  "} ${kind}: ${names.length - missing.length}/${names.length} demonstrated` +

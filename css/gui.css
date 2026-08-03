@@ -248,6 +248,21 @@
   border: none;
   border-radius: 2px;
 }
+/* A number field you can drag says so with the cursor — until it is being typed into, when it
+   is an ordinary text field again. */
+.gui-scrubbable {
+  cursor: ew-resize;
+}
+.gui-scrubbable:focus {
+  cursor: text;
+}
+/* Set on the body for the length of a drag: the pointer leaves the field almost immediately,
+   and without this the cursor flickers back and the drag selects text across the page. */
+body.gui-scrubbing,
+body.gui-scrubbing * {
+  cursor: ew-resize !important;
+  user-select: none !important;
+}
 /* A vector's axes share the control column and split it evenly. min-width: 0 is what lets a
    number input shrink below the width of its own content instead of pushing the label out. */
 .gui-vector {

@@ -64,6 +64,8 @@ const vars = {
   "--gui-track-height": signal(4),
   "--gui-max-height": signal(720),
   "--gui-check-size": signal(16),
+  "--gui-pad-height": signal(90),
+  "--gui-pad-dot-size": signal(10),
 };
 
 const METRIC_DEFAULTS = Object.fromEntries(
@@ -138,6 +140,8 @@ gui.addSlider("--gui-max-height", vars["--gui-max-height"], 200, 1200, 20, {
   title: "How tall the scrolling area may get",
 });
 gui.addSlider("--gui-check-size", vars["--gui-check-size"], 12, 28, 1);
+gui.addSlider("--gui-pad-height", vars["--gui-pad-height"], 40, 180, 2);
+gui.addSlider("--gui-pad-dot-size", vars["--gui-pad-dot-size"], 4, 22, 1);
 
 gui.addSection("Reset");
 gui.addButton("Back to the shipped look", () => {

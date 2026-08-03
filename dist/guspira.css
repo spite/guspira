@@ -32,6 +32,8 @@
   --gui-panel-radius: 6px;
   --gui-check-size: 16px;
   --gui-track-height: 4px;
+  --gui-pad-height: 90px;
+  --gui-pad-dot-size: 10px;
   --gui-max-height: calc(100vh - 80px);
   position: relative;
   background-color: var(--gui-bg);
@@ -235,6 +237,53 @@
 .gui-color::-webkit-color-swatch {
   border: none;
   border-radius: 2px;
+}
+.gui-scrubbable {
+  cursor: ew-resize;
+}
+.gui-scrubbable:focus {
+  cursor: text;
+}
+body.gui-scrubbing,
+body.gui-scrubbing * {
+  cursor: ew-resize !important;
+  user-select: none !important;
+}
+.gui-vector {
+  display: flex;
+  gap: 4px;
+}
+.gui-vector-axis {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.gui-pad {
+  position: relative;
+  height: var(--gui-pad-height);
+  cursor: crosshair;
+  touch-action: none;
+  border: 1px solid var(--gui-border);
+  border-radius: var(--gui-radius);
+  background:
+    linear-gradient(var(--gui-border), var(--gui-border)) 50% 0 / 1px 100% no-repeat,
+    linear-gradient(var(--gui-border), var(--gui-border)) 0 50% / 100% 1px no-repeat,
+    var(--gui-field-bg);
+}
+.gui-pad:focus-visible {
+  outline: 2px solid var(--gui-focus);
+  outline-offset: 2px;
+}
+.gui-pad-dot {
+  position: absolute;
+  width: var(--gui-pad-dot-size);
+  height: var(--gui-pad-dot-size);
+  margin: calc(var(--gui-pad-dot-size) / -2) 0 0 calc(var(--gui-pad-dot-size) / -2);
+  border-radius: 50%;
+  background: var(--gui-thumb);
+  pointer-events: none;
+}
+.gui-pad:hover .gui-pad-dot {
+  background: var(--gui-thumb-hover);
 }
 .gui-btn {
   width: 100%;

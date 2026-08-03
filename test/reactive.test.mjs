@@ -5,6 +5,7 @@ import {
   createScheduler, microtask, easings,
 } from "../src/reactive.js";
 import { precision, formatFloat, snap } from "../src/format.js";
+import { normalizeCurve, assertCurveRange, curveToValue, valueToCurve } from "../src/curve.js";
 
 let failures = 0;
 const check = (name, cond) => {
@@ -119,6 +120,50 @@ check("snap keeps a 0.05 grid", snap(0.15, 0.05, 0, 1) === 0.15, String(snap(0.1
 check("snap keeps a 0.25 grid", snap(0.75, 0.25, 0, 1) === 0.75, String(snap(0.75, 0.25, 0, 1)));
 check("snap clamps to the range", snap(9, 0.5, 0, 1) === 1);
 check("formatFloat pads to the step", formatFloat(1, 0.05) === "1.00", formatFloat(1, 0.05));
+
+// slider curves — pure arithmetic, which is why they live outside the element
+{
+  const near = (a, b, tolerance = 1e-9) => Math.abs(a - b) < tolerance;
+
+  check("linear is the default", normalizeCurve(undefined) === 1);
+  check("an attribute string becomes a number", normalizeCurve("2") === 2);
+  check("log survives as itself", normalizeCurve("log") === "log");
+  for (const bad of ["logarithmic", 0, -1, "abc", NaN]) {
+    let refused = false;
+    try { normalizeCurve(bad); } catch { refused = true; }
+    check(`curve ${JSON.stringify(bad)} is refused`, refused);
+  }
+
+  check("linear midpoint is half the range", curveToValue(0.5, 0, 10, 1) === 5);
+  check("curve 2 midpoint is a quarter", curveToValue(0.5, 0, 10, 2) === 2.5);
+  check("curve 0.5 midpoint is past two thirds", near(curveToValue(0.5, 0, 10, 0.5), 7.0710678, 1e-6));
+  check("a log midpoint is the geometric mean", near(curveToValue(0.5, 20, 20000, "log"), 632.4555, 1e-3));
+  check("a log quarter is the same ratio again", near(curveToValue(0.25, 20, 20000, "log"), 112.468, 1e-3));
+
+  // The two directions have to agree, or the thumb sits somewhere the drag will not put it.
+  let worst = 0;
+  for (const curve of [1, 2, 3, 0.5, "log"]) {
+    const [min, max] = curve === "log" ? [20, 20000] : [-5, 10];
+    for (let i = 0; i <= 100; i++) {
+      const t = i / 100;
+      worst = Math.max(worst, Math.abs(valueToCurve(curveToValue(t, min, max, curve), min, max, curve) - t));
+    }
+  }
+  check("every curve round-trips position -> value -> position", worst < 1e-12, worst.toExponential(1));
+
+  // A power curve is applied to the normalised position, so a range through zero is fine.
+  check("a range crossing zero still works", curveToValue(0.5, -5, 5, 2) === -2.5);
+
+  let logThroughZero = false;
+  try { assertCurveRange("log", 0, 100, "addSlider"); } catch { logThroughZero = true; }
+  check("a log range touching zero is refused", logThroughZero);
+  let logCrossing = false;
+  try { assertCurveRange("log", -10, 10, "addSlider"); } catch { logCrossing = true; }
+  check("a log range crossing zero is refused", logCrossing);
+  let linearThroughZero = false;
+  try { assertCurveRange(2, 0, 100, "addSlider"); } catch { linearThroughZero = true; }
+  check("a number curve through zero is fine", !linearThroughZero);
+}
 
 // --- the scheduled pieces fall back to timers -------------------------------------
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

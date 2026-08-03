@@ -197,6 +197,14 @@ import { createPresetStore } from "./src/presets.js";
 
   entry('gui.addColor("Tint", tint);', (g) => g.addColor("Tint", signal("#ffb347")));
 
+  entry('gui.addVector("Position", position, { step: 0.1 });', (g) =>
+    g.addVector("Position", signal([0, 1.5, -2]), { min: -10, max: 10, step: 0.1 })
+  );
+
+  entry('gui.addPad("Aim", aim, { invertY: true });', (g) =>
+    g.addPad("Aim", signal([0.5, 0.5]), { invertY: true, height: 76 })
+  );
+
   entry('gui.addTextInput("Name", name);', (g) =>
     g.addTextInput("Name", signal("guspira"), { placeholder: "untitled" })
   );

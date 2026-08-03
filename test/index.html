@@ -115,6 +115,137 @@
       check("a pair list shows its labels", pairs.el.options[0].textContent === "First");
       check("…and carries its values", pairs.el.options[0].value === "x");
 
+      // --- slider curves --------------------------------------------------------------
+      const curveDrag = (element, fraction) => {
+        const box = element.getBoundingClientRect();
+        element.shadowRoot.getElementById("container").dispatchEvent(
+          new PointerEvent("pointerdown", { clientX: box.left + box.width * fraction, clientY: box.top + 10, bubbles: true })
+        );
+        window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+      };
+      const curved = signal(5);
+      const curvedRow = gui.addSlider("Curved", curved, 0, 10, 0.01, { curve: 2 });
+      curveDrag(curvedRow.el, 0.5);
+      check("curve 2 puts a quarter of the range at the middle", Math.abs(curved() - 2.5) < 0.2);
+      const freq = signal(632);
+      const logRow = gui.addSlider("Freq", freq, 20, 20000, 1, { curve: "log" });
+      curveDrag(logRow.el, 0.5);
+      check("a log track's midpoint is the geometric mean", Math.abs(freq() - 632) < 30);
+      curveDrag(logRow.el, 0.25);
+      check("…and each quarter is the same ratio again", Math.abs(freq() - 112) < 12);
+      freq.set(632);
+      check("the thumb sits where the drag would put it", Math.abs(logRow.el.valueToPercentage(632) - 50) < 0.5);
+      freq.set(1000);
+      logRow.el.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+      check("an arrow steps by one step, not a slice of track", freq() === 1001);
+      freq.set(50);
+      logRow.el.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+      check("…the same amount at the sparse end of the track", freq() === 51);
+      let belowMid = 0;
+      for (let i = 0; i < 400; i++) { logRow.randomize(); if (freq() < 632) belowMid++; }
+      check("randomize rolls along the track, not across the values", belowMid > 130 && belowMid < 270, `${belowMid}/400`);
+      check("no curve still means linear", gui.addSlider("Plain", signal(1), 0, 10, 0.1).el.curve === 1);
+      const band = gui.addRangeSlider("Band", signal([100, 1000]), 20, 20000, 1, { curve: "log" });
+      check("a dual slider takes a curve too", band.el.curve === "log");
+      let curveRefused = "";
+      try { gui.addSlider("Bad", signal(1), 0, 100, 1, { curve: "log" }); } catch (e) { curveRefused = e.message; }
+      check("a log range through zero is refused at construction", /non-zero and the same sign/.test(curveRefused));
+      let curveName = "";
+      try { gui.addSlider("Bad", signal(1), 1, 100, 1, { curve: "logarithmic" }); } catch (e) { curveName = e.message; }
+      check("an unknown curve names what is valid", /positive number or "log"/.test(curveName));
+
+      // --- vector -------------------------------------------------------------------
+      const vecSignal = signal([0, 1.5, -2]);
+      const held = vecSignal.peek();
+      const vec = gui.addVector("Position", vecSignal, { min: -10, max: 10, step: 0.1 });
+      check("a vec3 makes one input per axis", vec.inputs.length === 3);
+      check("axes show the current value", vec.inputs.map((i) => i.value).join() === "0.0,1.5,-2.0");
+      vec.inputs[1].value = "3.5";
+      vec.inputs[1].dispatchEvent(new Event("input"));
+      check("editing one axis writes the whole vector", JSON.stringify(vecSignal()) === "[0,3.5,-2]");
+      check("…without mutating the array the sketch held", JSON.stringify(held) === "[0,1.5,-2]");
+      vec.inputs[0].value = "999";
+      vec.inputs[0].dispatchEvent(new Event("input"));
+      check("an axis clamps to its max", vecSignal()[0] === 10);
+      vecSignal.set([-1, -2, -3]);
+      check("a signal write moves the axes", vec.inputs.map((i) => i.value).join() === "-1.0,-2.0,-3.0");
+      check("each axis is labelled for screen readers", vec.inputs[2].getAttribute("aria-label") === "Position z");
+      const vec2 = gui.addVector("UV", signal([0.25, 0.75]));
+      check("the axis count comes from the value", vec2.inputs.length === 2);
+      const perAxis = gui.addVector("Rot", signal([0, 0, 0]), { min: [-180, -90, -180], max: [180, 90, 180], step: 1 });
+      check("min/max can differ per axis", perAxis.inputs[0].min === "-180" && perAxis.inputs[1].min === "-90");
+      let vecRefused = "";
+      try { gui.addVector("Bad", signal(5)); } catch (e) { vecRefused = e.message; }
+      check("a non-array signal is refused with a clear message", /array/.test(vecRefused));
+
+      // --- scrubbing a number field -------------------------------------------------
+      const scrubDrag = (el, dx, extra = {}) => {
+        const P = (type, x) =>
+          new PointerEvent(type, { clientX: x, button: 0, pointerId: 1, bubbles: true, ...extra });
+        el.dispatchEvent(P("pointerdown", 100));
+        el.dispatchEvent(P("pointermove", 100 + dx));
+        el.dispatchEvent(P("pointerup", 100 + dx));
+      };
+      const scrubbed = signal(10);
+      const numRow = gui.addNumber("Scrub", scrubbed, { min: 0, max: 100, step: 1 });
+      scrubDrag(numRow.el, 25);
+      check("dragging a number field right raises it", scrubbed() === 35);
+      scrubDrag(numRow.el, -15);
+      check("dragging left lowers it", scrubbed() === 20);
+      scrubbed.set(50);
+      scrubDrag(numRow.el, 999);
+      check("a scrub clamps to max", scrubbed() === 100);
+      scrubbed.set(42);
+      const tap = (type, x) => new PointerEvent(type, { clientX: x, button: 0, pointerId: 1, bubbles: true });
+      numRow.el.dispatchEvent(tap("pointerdown", 100));
+      numRow.el.dispatchEvent(tap("pointermove", 101));
+      numRow.el.dispatchEvent(tap("pointerup", 101));
+      check("a press that does not travel is a click, not a drag", scrubbed() === 42);
+      check("…and focuses the field so it can be typed into", document.activeElement === numRow.el);
+      scrubbed.set(7);
+      scrubDrag(numRow.el, 40);
+      check("a field being edited is not hijacked", scrubbed() === 7);
+      numRow.el.blur();
+      const scrubVec = signal([0, 0, 0]);
+      const scrubVecRow = gui.addVector("Scrubbable", scrubVec, { min: -10, max: 10, step: 0.1 });
+      scrubDrag(scrubVecRow.inputs[1], 20);
+      check("a vector axis scrubs", Math.abs(scrubVec()[1] - 2) < 1e-9);
+      check("…without disturbing the other axes", scrubVec()[0] === 0 && scrubVec()[2] === 0);
+      const freeform = signal(0.5);
+      scrubDrag(gui.addNumber("Free", freeform, { min: 0, max: 1 }).el, 20);
+      check("with no step the range sets the rate", Math.abs(freeform() - 0.6) < 1e-9);
+      const optedOut = signal(5);
+      scrubDrag(gui.addNumber("No scrub", optedOut, { step: 1, scrub: false }).el, 30);
+      check("scrub: false opts out", optedOut() === 5);
+      const lockedNum = signal(5);
+      scrubDrag(gui.addNumber("Locked", lockedNum, { step: 1, disabled: true }).el, 30);
+      check("a disabled row does not scrub", lockedNum() === 5);
+      const scrubEl = numRow.el;
+      numRow.destroy();
+      scrubbed.set(1);
+      scrubDrag(scrubEl, 50);
+      check("a destroyed row stops scrubbing", scrubbed() === 1);
+      check("the drag class is not left on the body", !document.body.classList.contains("gui-scrubbing"));
+
+      // --- pad ----------------------------------------------------------------------
+      const aim = signal([0.5, 0.5]);
+      const pad = gui.addPad("Aim", aim);
+      const padDot = pad.el.querySelector(".gui-pad-dot");
+      check("the dot sits where the value says", padDot.style.left === "50%" && padDot.style.top === "50%");
+      aim.set([0, 1]);
+      check("a signal write moves the dot", padDot.style.left === "0%" && padDot.style.top === "100%");
+      aim.set([0.5, 0.5]);
+      pad.el.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+      check("an arrow key steps by one step", Math.abs(aim()[0] - 0.51) < 1e-9);
+      pad.el.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", shiftKey: true, bubbles: true }));
+      check("shift makes it ten", Math.abs(aim()[0] - 0.61) < 1e-9);
+      const upPad = gui.addPad("Up", signal([0.5, 1]), { invertY: true });
+      check("invertY puts the maximum at the top", upPad.el.querySelector(".gui-pad-dot").style.top === "0%");
+      const padEl = pad.el;
+      pad.destroy();
+      aim.set([0.1, 0.1]);
+      check("a destroyed pad stops following its signal", padEl.querySelector(".gui-pad-dot").style.left !== "10%");
+
       // --- randomize ---------------------------------------------------------------
       params.amount.set(0.5);
       let rolled = false;

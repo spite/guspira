@@ -368,6 +368,43 @@ function snap(value, step, min, max) {
   return parseFloat(Math.max(min, Math.min(max, snapped)).toFixed(precision(step)));
 }
 
+// src/curve.js
+function normalizeCurve(value) {
+  if (value === void 0 || value === null || value === "") return 1;
+  if (value === "log") return "log";
+  const asNumber = typeof value === "string" ? parseFloat(value) : Number(value);
+  if (!Number.isFinite(asNumber) || asNumber <= 0) {
+    throw new TypeError(
+      `[guspira] curve must be a positive number or "log", not ${JSON.stringify(value)}`
+    );
+  }
+  return asNumber;
+}
+function assertCurveRange(curve, min, max, where = "range-slider") {
+  if (curve !== "log") return;
+  if (min === 0 || max === 0 || Math.sign(min) !== Math.sign(max)) {
+    throw new RangeError(
+      `[guspira] ${where}: curve "log" needs min and max to be non-zero and the same sign (given ${min} to ${max}) — 0 has no logarithm. Use a number like curve: 2 for a low-end bias on a range that includes zero.`
+    );
+  }
+}
+function curveToValue(fraction, min, max, curve = 1) {
+  if (curve === "log") return min * Math.pow(max / min, fraction);
+  const eased = curve === 1 ? fraction : Math.pow(Math.max(0, fraction), curve);
+  return min + eased * (max - min);
+}
+function valueToCurve(value, min, max, curve = 1) {
+  if (curve === "log") {
+    const ratio = max / min;
+    if (ratio <= 0 || ratio === 1) return 0;
+    return Math.log(value / min) / Math.log(ratio);
+  }
+  const span = max - min;
+  if (!span) return 0;
+  const fraction = (value - min) / span;
+  return curve === 1 ? fraction : Math.pow(Math.max(0, fraction), 1 / curve);
+}
+
 // src/range-slider.js
 var RangeSlider = class extends HTMLElement {
   static formAssociated = true;
@@ -380,6 +417,7 @@ var RangeSlider = class extends HTMLElement {
     this._min = 0;
     this._max = 100;
     this._step = 1;
+    this._curve = 1;
     this._valMin = 0;
     this._valMax = 50;
     this._syncingAttribute = false;
@@ -389,7 +427,7 @@ var RangeSlider = class extends HTMLElement {
     this._onPointerUp = () => this.handleDragEnd();
   }
   static get observedAttributes() {
-    return ["min", "max", "step", "value", "dual", "disabled"];
+    return ["min", "max", "step", "value", "dual", "disabled", "curve"];
   }
   get template() {
     return `
@@ -510,6 +548,7 @@ var RangeSlider = class extends HTMLElement {
     }
     if (!this.hasAttribute("tabindex")) this.setAttribute("tabindex", "0");
     if (!this.hasAttribute("role")) this.setAttribute("role", "slider");
+    assertCurveRange(this._curve, this._min, this._max);
     this.updateUI();
     this.addEventListeners();
   }
@@ -531,6 +570,9 @@ var RangeSlider = class extends HTMLElement {
         break;
       case "step":
         this._step = parseFloat(newValue);
+        break;
+      case "curve":
+        this._curve = normalizeCurve(newValue);
         break;
       case "value":
         if (newValue === null) break;
@@ -657,12 +699,11 @@ var RangeSlider = class extends HTMLElement {
     this.updateUI();
   }
   percentageToValue(percentage) {
-    return this._min + percentage * (this._max - this._min);
+    return curveToValue(percentage, this._min, this._max, this._curve);
   }
+  // Returns 0..100: it feeds CSS `left`, which is where it has always gone.
   valueToPercentage(value) {
-    const span = this._max - this._min;
-    if (!span) return 0;
-    return (value - this._min) / span * 100;
+    return valueToCurve(value, this._min, this._max, this._curve) * 100;
   }
   updateUI() {
     if (!this.elements) return;
@@ -728,6 +769,14 @@ var RangeSlider = class extends HTMLElement {
     this._step = parseFloat(value);
     this.updateUI();
   }
+  get curve() {
+    return this._curve;
+  }
+  set curve(value) {
+    this._curve = normalizeCurve(value);
+    assertCurveRange(this._curve, this._min, this._max);
+    this.updateUI();
+  }
 };
 if (!customElements.get("range-slider")) customElements.define("range-slider", RangeSlider);
 var range_slider_default = RangeSlider;
@@ -789,6 +838,62 @@ function condition(...candidates) {
     return typeof value === "function" ? value : () => value;
   }
   return null;
+}
+var SCRUB_THRESHOLD = 3;
+function makeScrubbable(input, { step, onScrub, enabled }) {
+  let origin = null;
+  let scrubbing = false;
+  input.classList.add("gui-scrubbable");
+  const down = (e) => {
+    if (e.button !== 0 || !enabled() || document.activeElement === input) return;
+    e.preventDefault();
+    origin = { x: e.clientX, value: parseFloat(input.value) || 0 };
+    scrubbing = false;
+  };
+  const move = (e) => {
+    if (!origin) return;
+    const dx = e.clientX - origin.x;
+    if (!scrubbing) {
+      if (Math.abs(dx) < SCRUB_THRESHOLD) return;
+      scrubbing = true;
+      try {
+        input.setPointerCapture(e.pointerId);
+      } catch {
+      }
+      document.body.classList.add("gui-scrubbing");
+    }
+    onScrub(origin.value + dx * step() * (e.shiftKey ? 10 : 1));
+  };
+  const up = (e) => {
+    if (!origin) return;
+    try {
+      if (input.hasPointerCapture(e.pointerId)) input.releasePointerCapture(e.pointerId);
+    } catch {
+    }
+    if (!scrubbing) {
+      input.focus();
+      input.select();
+    }
+    origin = null;
+    scrubbing = false;
+    document.body.classList.remove("gui-scrubbing");
+  };
+  input.addEventListener("pointerdown", down);
+  input.addEventListener("pointermove", move);
+  input.addEventListener("pointerup", up);
+  input.addEventListener("pointercancel", up);
+  return () => {
+    input.removeEventListener("pointerdown", down);
+    input.removeEventListener("pointermove", move);
+    input.removeEventListener("pointerup", up);
+    input.removeEventListener("pointercancel", up);
+    document.body.classList.remove("gui-scrubbing");
+  };
+}
+function scrubStepFor(step, min, max) {
+  if (step !== void 0) return step;
+  if (min !== void 0 && max !== void 0) return (max - min) / 200;
+  return 1;
 }
 var targetOf = (sig) => sig.target || sig;
 var sectionId = 0;
@@ -1299,9 +1404,11 @@ var GUI = class {
   addSlider(label, value, min, max, step, a) {
     const opts = readOptions(a);
     const sig = toSignal(value);
+    const curve = normalizeCurve(opts.curve);
+    assertCurveRange(curve, min, max, "addSlider");
     const controller = this.createRow(label, opts);
     this._randomizable(controller, () => {
-      sig.set(snap(randomInRange(min, max), step, min, max));
+      sig.set(snap(curveToValue(random(), min, max, curve), step, min, max));
       opts.onChange && opts.onChange(sig());
     }, opts);
     const wrapper = document.createElement("div");
@@ -1311,6 +1418,7 @@ var GUI = class {
     input.min = min;
     input.max = max;
     input.step = step;
+    if (curve !== 1) input.curve = curve;
     input.oninput = () => {
       const v = parseFloat(input.value);
       sig.set(v);
@@ -1373,10 +1481,14 @@ var GUI = class {
   addRangeSlider(label, value, min, max, step, a) {
     const opts = readOptions(a);
     const sig = toSignal(value);
+    const curve = normalizeCurve(opts.curve);
+    assertCurveRange(curve, min, max, "addRangeSlider");
     const controller = this.createRow(label, opts);
     this._randomizable(controller, () => {
-      const lo = snap(randomInRange(min, max), step, min, max);
-      const hi = snap(randomInRange(lo, max), step, min, max);
+      const first = random();
+      const second = random();
+      const lo = snap(curveToValue(Math.min(first, second), min, max, curve), step, min, max);
+      const hi = snap(curveToValue(Math.max(first, second), min, max, curve), step, min, max);
       sig.set([lo, hi]);
       opts.onChange && opts.onChange(sig());
     }, opts);
@@ -1388,6 +1500,7 @@ var GUI = class {
     input.min = min;
     input.max = max;
     input.step = step;
+    if (curve !== 1) input.curve = curve;
     input.oninput = () => {
       const [lo, hi] = input.value;
       sig.set([parseFloat(lo), parseFloat(hi)]);
@@ -1458,18 +1571,207 @@ var GUI = class {
     if (opts.min !== void 0) input.min = opts.min;
     if (opts.max !== void 0) input.max = opts.max;
     if (opts.step !== void 0) input.step = opts.step;
-    input.oninput = () => {
-      const v = parseFloat(input.value);
-      if (!isFinite(v)) return;
+    const commit = (v) => {
       sig.set(v);
       opts.onChange && opts.onChange(v);
     };
+    input.oninput = () => {
+      const v = parseFloat(input.value);
+      if (!isFinite(v)) return;
+      commit(v);
+    };
+    if (opts.scrub !== false) {
+      controller.onDestroy(
+        makeScrubbable(input, {
+          step: () => scrubStepFor(opts.step, opts.min, opts.max),
+          enabled: () => !controller.row.classList.contains("disabled"),
+          onScrub: (v) => commit(snap(v, scrubStepFor(opts.step, opts.min, opts.max), opts.min ?? -Infinity, opts.max ?? Infinity))
+        })
+      );
+    }
     controller.bind(() => {
       const v = targetOf(sig)();
       if (document.activeElement !== input) input.value = v;
     });
     controller.row.append(input);
     controller.el = input;
+    controller.signal = sig;
+    return controller;
+  }
+  // A row of number inputs over one array signal — a position, a scale, an offset. How many
+  // axes there are comes from the value it is handed, so the same call makes a vec2, a vec3 or
+  // a vec4. `min`, `max` and `step` each take one number for every axis, or an array with an
+  // entry per axis when they differ.
+  //
+  //   gui.addVector("Position", signal([0, 1.5, -2]), { min: -10, max: 10, step: 0.1 });
+  addVector(label, value, a) {
+    const opts = readOptions(a);
+    const sig = toSignal(value);
+    const start = targetOf(sig).peek();
+    if (!Array.isArray(start)) {
+      throw new TypeError(
+        "[guspira] addVector needs a signal holding an array — signal([0, 0, 0]) for a vec3"
+      );
+    }
+    const axes = opts.axes || ["x", "y", "z", "w"].slice(0, start.length);
+    const per = (option, i) => Array.isArray(option) ? option[i] : option;
+    const controller = this.createRow(label, opts);
+    const wrap = document.createElement("div");
+    wrap.className = "gui-control gui-vector";
+    const commit = (i, raw) => {
+      const step = per(opts.step, i);
+      const min = per(opts.min, i);
+      const max = per(opts.max, i);
+      const clamped = step === void 0 ? Math.min(max ?? Infinity, Math.max(min ?? -Infinity, raw)) : snap(raw, step, min ?? -Infinity, max ?? Infinity);
+      const next = [...targetOf(sig).peek()];
+      next[i] = clamped;
+      sig.set(next);
+      opts.onChange && opts.onChange(next);
+    };
+    const inputs = axes.map((axis, i) => {
+      const input = document.createElement("input");
+      input.type = "number";
+      input.className = "gui-input-number gui-vector-axis";
+      input.title = axis;
+      input.setAttribute("aria-label", label ? `${label} ${axis}` : axis);
+      const step = per(opts.step, i);
+      const min = per(opts.min, i);
+      const max = per(opts.max, i);
+      if (step !== void 0) input.step = step;
+      if (min !== void 0) input.min = min;
+      if (max !== void 0) input.max = max;
+      input.oninput = () => {
+        const v = parseFloat(input.value);
+        if (isFinite(v)) commit(i, v);
+      };
+      if (opts.scrub !== false) {
+        controller.onDestroy(
+          makeScrubbable(input, {
+            step: () => scrubStepFor(step, min, max),
+            enabled: () => !controller.row.classList.contains("disabled"),
+            onScrub: (v) => commit(i, v)
+          })
+        );
+      }
+      wrap.append(input);
+      return input;
+    });
+    controller.bind(() => {
+      const v = targetOf(sig)();
+      inputs.forEach((input, i) => {
+        if (document.activeElement === input) return;
+        const step = per(opts.step, i);
+        input.value = step === void 0 ? v[i] : formatFloat(v[i], step);
+      });
+    });
+    this._randomizable(
+      controller,
+      () => {
+        const next = axes.map((_, i) => {
+          const min = per(opts.min, i) ?? -1;
+          const max = per(opts.max, i) ?? 1;
+          return snap(randomInRange(min, max), per(opts.step, i) ?? 0.01, min, max);
+        });
+        sig.set(next);
+        opts.onChange && opts.onChange(next);
+      },
+      opts
+    );
+    controller.row.append(wrap);
+    controller.el = wrap;
+    controller.inputs = inputs;
+    controller.signal = sig;
+    return controller;
+  }
+  // A draggable 2D value over one `[x, y]` signal. Both axes default to 0..1; `min`, `max`
+  // and `step` take one number for both axes or `[x, y]` when they differ.
+  //
+  // The pad reads top-left downwards, the way screen coordinates do. `invertY: true` flips it
+  // so that up is larger, the way most graphics maths has it.
+  addPad(label, value, a) {
+    const opts = readOptions(a);
+    const sig = toSignal(value);
+    const start = targetOf(sig).peek();
+    if (!Array.isArray(start)) {
+      throw new TypeError("[guspira] addPad needs a signal holding an [x, y] array");
+    }
+    const controller = this.createRow(label, opts);
+    const per = (option, i, fallback) => {
+      const v = Array.isArray(option) ? option[i] : option;
+      return v === void 0 ? fallback : v;
+    };
+    const minX = per(opts.min, 0, 0);
+    const maxX = per(opts.max, 0, 1);
+    const minY = per(opts.min, 1, 0);
+    const maxY = per(opts.max, 1, 1);
+    const stepX = per(opts.step, 0, (maxX - minX) / 100);
+    const stepY = per(opts.step, 1, (maxY - minY) / 100);
+    const invertY = !!opts.invertY;
+    const pad = document.createElement("div");
+    pad.className = "gui-control gui-pad";
+    pad.tabIndex = 0;
+    pad.setAttribute("role", "application");
+    pad.setAttribute("aria-label", `${label || "Pad"} — arrow keys to move, shift for bigger steps`);
+    if (opts.height !== void 0) {
+      pad.style.setProperty(
+        "--gui-pad-height",
+        typeof opts.height === "number" ? `${opts.height}px` : opts.height
+      );
+    }
+    const dot = document.createElement("div");
+    dot.className = "gui-pad-dot";
+    pad.append(dot);
+    const clamp012 = (v) => Math.min(1, Math.max(0, v));
+    const fraction = (v, min, max) => max === min ? 0 : (v - min) / (max - min);
+    const commit = (x, y) => {
+      const next = [snap(x, stepX, minX, maxX), snap(y, stepY, minY, maxY)];
+      sig.set(next);
+      opts.onChange && opts.onChange(next);
+    };
+    const writeFromPointer = (e) => {
+      const box = pad.getBoundingClientRect();
+      const fx = clamp012((e.clientX - box.left) / box.width);
+      const fy = clamp012((e.clientY - box.top) / box.height);
+      commit(minX + fx * (maxX - minX), minY + (invertY ? 1 - fy : fy) * (maxY - minY));
+    };
+    const enabled = () => !controller.row.classList.contains("disabled");
+    pad.addEventListener("pointerdown", (e) => {
+      if (!enabled()) return;
+      pad.setPointerCapture(e.pointerId);
+      pad.focus();
+      writeFromPointer(e);
+    });
+    pad.addEventListener("pointermove", (e) => {
+      if (pad.hasPointerCapture(e.pointerId)) writeFromPointer(e);
+    });
+    const release = (e) => {
+      if (pad.hasPointerCapture(e.pointerId)) pad.releasePointerCapture(e.pointerId);
+    };
+    pad.addEventListener("pointerup", release);
+    pad.addEventListener("pointercancel", release);
+    const ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+    pad.addEventListener("keydown", (e) => {
+      const move = ARROWS[e.key];
+      if (!move || !enabled()) return;
+      e.preventDefault();
+      const scale = e.shiftKey ? 10 : 1;
+      const [x, y] = targetOf(sig).peek();
+      commit(x + move[0] * stepX * scale, y + (invertY ? -move[1] : move[1]) * stepY * scale);
+    });
+    controller.bind(() => {
+      const [x, y] = targetOf(sig)();
+      const fx = clamp012(fraction(x, minX, maxX));
+      const fy = clamp012(fraction(y, minY, maxY));
+      dot.style.left = `${fx * 100}%`;
+      dot.style.top = `${(invertY ? 1 - fy : fy) * 100}%`;
+    });
+    this._randomizable(
+      controller,
+      () => commit(randomInRange(minX, maxX), randomInRange(minY, maxY)),
+      opts
+    );
+    controller.row.append(pad);
+    controller.el = pad;
     controller.signal = sig;
     return controller;
   }

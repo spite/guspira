@@ -286,6 +286,8 @@ gui.addSelect("Palette", params.palette, ["warm", "cool"]);   // or [[value, lab
 gui.addColor("Tint", params.tint);
 gui.addTextInput("Name", params.name);
 gui.addNumber("Seed", params.seed, { min: 0, step: 1 });
+gui.addVector("Position", params.position, { min: -10, max: 10, step: 0.1 });
+gui.addPad("Aim", params.aim, { invertY: true });             // signal holds [x, y]
 gui.addMonitor("FPS", fps, { format: (v) => v.toFixed(1) });  // read-only
 gui.addButton("Export", () => save());
 gui.addButtons(null, [                                        // several on one row
@@ -302,6 +304,73 @@ gui.addElement(myCustomWidget, { label: "Custom" });
 
 A slider's value can be dragged, nudged with the arrow keys, or typed — click the number, or
 press <kbd>Enter</kbd> with the slider focused.
+
+**A slider's track need not be linear.** `curve` bends it — a number is an exponent on the
+track position, and `"log"` gives every ratio the same width:
+
+```js
+gui.addSlider("Radius", radius, 0, 10, 0.01, { curve: 2 });        // low end gets more room
+gui.addSlider("Detail", detail, 0, 1, 0.01, { curve: 0.5 });       // high end does
+gui.addSlider("Frequency", freq, 20, 20000, 1, { curve: "log" });  // equal per decade
+```
+
+Same slider from 0 to 10, read at three points along the track:
+
+| track | `curve: 1` | `curve: 2` | `curve: 0.5` |
+|---|---|---|---|
+| 25% | 2.5 | 0.63 | 5.0 |
+| 50% | 5.0 | 2.5 | 7.1 |
+| 75% | 7.5 | 5.6 | 8.7 |
+
+`step` stays in real units, so snapping, the typed editor, presets and persistence are
+untouched, and an arrow key moves by exactly one step wherever you are on the track. A `"log"`
+track needs `min` and `max` non-zero and the same sign — zero has no logarithm — and says so at
+construction rather than leaving you a thumb that will not move. A number curve is applied to
+the normalised position, so it is happy with a range that crosses zero.
+
+Randomising a curved slider rolls along the **track**, not across the values: on a log slider
+from 20 to 20000, a uniform roll of the value would land above 2 kHz nine times in ten.
+
+**Number fields scrub.** Drag one sideways and it counts up and down: one step per pixel, ten
+per pixel with <kbd>Shift</kbd>. Without a `step` the rate comes from the stated range, so a
+whole sweep stays within a hand's reach; without a range either, it counts in ones. A press
+that never travels is still a click, which focuses the field and selects it so the first
+keystroke replaces the value, and a field already being edited is left alone so selecting a
+digit with the mouse does what it looks like. `{ scrub: false }` turns it off.
+
+### Values with more than one number
+
+`addVector` binds one signal holding an array. How many axes it draws comes from the value it
+is given, so the same call makes a vec2, a vec3 or a vec4, and `min`, `max` and `step` each take
+either one number for every axis or an array with an entry per axis:
+
+```js
+const rotation = signal([0, 0, 0]);
+
+gui.addVector("Rotation", rotation, {
+  min: [-180, -90, -180],   // yaw and roll go all the way round, pitch only half
+  max: [180, 90, 180],
+  step: 1,
+  axes: ["yaw", "pitch", "roll"],   // default is x, y, z, w
+});
+```
+
+Editing one axis writes a **new** array rather than mutating the one your sketch is holding.
+Signals compare arrays element-wise, so rewriting one with the same numbers still costs its
+readers nothing.
+
+`addPad` drags an `[x, y]` around a square. Both axes default to `0..1`, and `min`/`max`/`step`
+take one number for both or `[x, y]` when they differ:
+
+```js
+gui.addPad("Light", signal([0.5, 0.5]), { invertY: true, height: 96 });
+```
+
+The pad reads top-left downwards, the way screen coordinates do; `invertY` flips it so up is
+larger, the way most graphics maths has it. It captures the pointer, so a drag that leaves the
+pad keeps working, and it is a tab stop: arrows move by one step, <kbd>Shift</kbd> by ten.
+
+Both are in [`demo/vector.html`](demo/vector.html), driving a wireframe cube.
 
 Everything the panel does is reachable without a mouse: the title and section headings are
 buttons that fold with <kbd>Enter</kbd>, the tab bar takes <kbd>←</kbd>/<kbd>→</kbd> and
@@ -549,11 +618,18 @@ The slider is a standalone form-associated custom element — usable without the
 ```html
 <range-slider min="0" max="1" step="0.01" value="0.4"></range-slider>
 <range-slider dual min="0" max="1" step="0.01" value="0.2,0.8"></range-slider>
+<range-slider min="20" max="20000" step="1" value="632" curve="log"></range-slider>
 ```
 
 `value` is a number, or `[min, max]` in `dual` mode. It emits `input` while dragging and
 `change` on release, and supports arrows, Page keys and Home/End (Shift moves the lower handle
-of a dual slider).
+of a dual slider). `curve` takes the same values as the panel option above.
+
+The mapping itself lives in `src/curve.js` rather than in the element, because it is arithmetic
+with no DOM in it: the panel needs the same functions to reroll a curved slider along its track,
+and a test should be able to check them without a browser. The pair has to stay invertible —
+dragging needs position → value, drawing the thumb needs value → position — which is why
+`curve` is a closed set rather than a function you supply.
 
 ## Tests
 

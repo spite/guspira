@@ -6,6 +6,40 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="stylesheet" href="../css/gui.css" />
     <link rel="stylesheet" href="../css/site.css" />
+    <style>
+      .curve-row { margin-bottom: 1.5rem; }
+      .curve-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin-bottom: 2px;
+      }
+      .curve-head code { color: var(--accent-text); }
+      .curve-head b { font-variant-numeric: tabular-nums; font-weight: 600; }
+      /* The marks are positioned by the same function that positions the thumb, so the strip
+         cannot drift from the track above it. */
+      .curve-scale {
+        position: relative;
+        height: 1.5em;
+        margin-top: 1px;
+        font-size: 11px;
+        color: var(--dim);
+      }
+      .curve-scale span {
+        position: absolute;
+        transform: translateX(-50%);
+        white-space: nowrap;
+      }
+      .curve-scale span::before {
+        content: "";
+        position: absolute;
+        left: 50%;
+        top: -4px;
+        height: 4px;
+        border-left: 1px solid var(--line);
+      }
+      .hint { color: var(--dim); margin: 0 0 1rem; }
+    </style>
   </head>
   <body>
     <header class="page-head">
@@ -22,6 +56,15 @@
           <label>Stepped <range-slider name="stepped" min="0" max="10" step="0.25" value="2.5"></range-slider></label>
           <label>Disabled <range-slider name="off" min="0" max="1" step="0.1" value="0.5" disabled></range-slider></label>
         </form>
+        <div>
+          <h2>Track curves</h2>
+          <p class="hint">
+            The same range on three tracks — 20&nbsp;Hz to 20&nbsp;kHz. The marks sit at 100&nbsp;Hz,
+            1&nbsp;kHz and 10&nbsp;kHz, so you can see where each track puts them without touching
+            anything. Drag one and the other two follow to the same value.
+          </p>
+          <div id="curves"></div>
+        </div>
         <div>
           <h2>FormData</h2>
           <div class="readout" id="state"></div>

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Guspira — Vectors &amp; pads</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="../css/gui.css" />
+    <link rel="stylesheet" href="../css/site.css" />
+    <style>
+      #canvas {
+        width: 100%;
+        height: 340px;
+        display: block;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #0d0d12;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="page-head">
+      <a class="back" href="./">← all demos</a>
+      <h1>Vectors &amp; pads</h1>
+      <p>
+        Two controls for values that come in more than one number. <code>addVector</code> is a row
+        of number boxes over one array signal — as many as the value has, so the same call makes a
+        vec2 or a vec4. <code>addPad</code> drags an <code>[x, y]</code> around a square.
+      </p>
+    </header>
+    <main class="demo">
+      <section class="stage">
+        <canvas id="canvas"></canvas>
+        <div>
+          <h2>The signals</h2>
+          <div class="readout" id="state"></div>
+        </div>
+        <div>
+          <h2>The panel</h2>
+          <div class="codecard"><div class="bar"><i></i><i></i><i></i><span>panel.js</span></div><pre class="code" id="code"></pre></div>
+        </div>
+        <div class="note">
+          <strong>Try:</strong> drag the pad and let go with the pointer outside it — the drag
+          keeps going, because the pad captures the pointer rather than listening on the window.
+          Tab to it and use the arrows, with shift for ten steps at a time. <strong>Drag an axis box sideways</strong> to count it up
+          and down — shift for ten steps a pixel — or click it once to type. Editing one axis of
+          <em>Rotation</em> leaves the other two where they are. Click any control's
+          <em>label</em> to reroll just that one.
+        </div>
+      </section>
+      <aside id="gui-container"></aside>
+    </main>
+    <script type="module" src="./vector.js"></script>
+    <footer>
+      <span><a href="../">Guspira</a> · <a href="./">all demos</a></span>
+      <span><a href="https://github.com/spite/guspira">GitHub</a> · MIT © Jaume Sanchez Elias</span>
+    </footer>
+    <script type="module" src="../theme.js"></script>
+  </body>
+</html>
