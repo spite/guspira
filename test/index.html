@@ -116,6 +116,79 @@
       check("a pair list shows its labels", pairs.el.options[0].textContent === "First");
       check("…and carries its values", pairs.el.options[0].value === "x");
 
+      // --- a monitor knows its budget too ------------------------------------------------
+      {
+        const load = signal(10);
+        const monitorRow = gui.addMonitor("Load", load, { over: 100, format: (v) => `${v}` });
+        const readout = monitorRow.row.querySelector(".gui-monitor");
+        check("a monitor under budget reads normally", !readout.classList.contains("gui-over"));
+        load.set(150);
+        check("…and says so when it goes over", readout.classList.contains("gui-over"));
+        load.set(50);
+        check("…and stops saying so when it comes back", !readout.classList.contains("gui-over"));
+
+        const floor = signal(60);
+        const floorRow = gui.addMonitor("Rate", floor, { below: 55, format: (v) => `${v}` });
+        const floorOut = floorRow.row.querySelector(".gui-monitor");
+        check("a floor is quiet while it is met", !floorOut.classList.contains("gui-over"));
+        floor.set(30);
+        check("…and speaks when it is not", floorOut.classList.contains("gui-over"));
+
+        const words = signal("fine");
+        const wordRow = gui.addMonitor("Status", words, { over: 1 });
+        check("a non-numeric monitor is never over budget",
+          !wordRow.row.querySelector(".gui-monitor").classList.contains("gui-over"));
+      }
+
+      // --- colour formats ---------------------------------------------------------------
+      {
+        const hexColour = signal("#ff6500");
+        const hexRow = gui.addColor("Hex", hexColour);
+        check("a hex colour reaches the swatch", hexRow.el.value === "#ff6500");
+        hexRow.el.value = "#0066ff";
+        hexRow.el.dispatchEvent(new Event("input"));
+        check("picking writes hex straight through", hexColour() === "#0066ff");
+
+        const rgbColour = signal([1, 0.4, 0]);
+        const rgbRow = gui.addColor("Rgb", rgbColour, { format: "rgb" });
+        check("an rgb signal still shows a hex swatch", rgbRow.el.value === "#ff6600");
+        rgbRow.el.value = "#ff0000";
+        rgbRow.el.dispatchEvent(new Event("input"));
+        check("…and picking writes 0..1 back, not a string", Array.isArray(rgbColour()) && rgbColour().join() === "1,0,0");
+
+        const byteColour = signal([255, 101, 0]);
+        const byteRow = gui.addColor("Bytes", byteColour, { format: "rgb255" });
+        check("rgb255 shows its colour", byteRow.el.value === "#ff6500");
+        byteRow.el.value = "#0000ff";
+        byteRow.el.dispatchEvent(new Event("input"));
+        check("…and writes bytes back", byteColour().join() === "0,0,255");
+
+        // the reroll goes through the codec too, or it would drop a hex string into an array
+        const rerolled = signal([0.5, 0.5, 0.5]);
+        gui.addColor("Roll", rerolled, { format: "rgb" }).randomize();
+        check("randomize yields the declared type", Array.isArray(rerolled()) && rerolled().length === 3);
+        check("…in range", rerolled().every((c) => c >= 0 && c <= 1), JSON.stringify(rerolled()));
+
+        // a custom codec is handed the value it replaces
+        let sawPrevious = null;
+        const custom = signal({ tag: "start", hex: "#123456" });
+        const customRow = gui.addColor("Custom", custom, {
+          format: {
+            toHex: (v) => v.hex,
+            fromHex: (hex, previous) => { sawPrevious = previous; return { tag: previous.tag, hex }; },
+          },
+        });
+        check("a custom codec drives the swatch", customRow.el.value === "#123456");
+        customRow.el.value = "#654321";
+        customRow.el.dispatchEvent(new Event("input"));
+        check("…is handed the value it replaces", sawPrevious && sawPrevious.tag === "start");
+        check("…and can keep what hex cannot carry", custom().tag === "start" && custom().hex === "#654321");
+
+        let badFormat = "";
+        try { gui.addColor("Bad", signal("#000000"), { format: "hsl" }); } catch (e) { badFormat = e.message; }
+        check("an unknown colour format is refused by name", /unknown colour format/.test(badFormat));
+      }
+
       // --- segmented ------------------------------------------------------------------
       const blend = signal("add");
       const seg = gui.addSegmented("Blend", blend, ["over", "add", "screen"]);

@@ -2,6 +2,7 @@
 // just without the storage half. Anything that reaches for the DOM at import or call time
 // (rather than only when a file is actually saved or loaded) shows up here.
 
+import { mixRgb } from "../src/color.js";
 import { createParams } from "../src/params.js";
 import { createPresetStore } from "../src/presets.js";
 import { effect, easings } from "../src/reactive.js";
@@ -144,6 +145,28 @@ check("a mix at 1 is the end", mixColors("#ff8a3d", "#2f6fd0", 1) === "#2f6fd0")
   const p = createParams({ a: 1 });
   check("no ease option, no travelling", p.a.target === p.a);
   check("…and .target() still answers", p.a.target() === 1);
+}
+
+// numeric arrays travel, and a colour kept as one can ask for the perceptual path
+{
+  const store = createParams(
+    { position: [0, 0, 0], tint: [1, 0, 0], label: "x", count: 1 },
+    { ease: { duration: 200, interpolate: { tint: mixRgb } } }
+  );
+  const travels = (key) => store[key].target !== store[key];
+  check("a numeric array travels", travels("position"));
+  check("…and so does a number", travels("count"));
+  check("a string does not", !travels("label"));
+  check("a per-key interpolator is used", travels("tint"));
+
+  store.position.set([10, 10, 10]);
+  // A tween starts where it was, so it has to be given a moment before it is anywhere else.
+  await new Promise((r) => setTimeout(r, 80));
+  const mid = store.position();
+  check("a vector is mid-flight after a write", mid.every((v) => v > 0 && v < 10), JSON.stringify(mid));
+  check("…while its target is already there", store.position.target().join() === "10,10,10");
+  check("a snapshot records the target, not the journey", store.$snapshot().position.join() === "10,10,10");
+  store.$stop();
 }
 
 console.log(failures ? `\n${failures} FAILURES` : "\nall params tests passed");

@@ -61,17 +61,73 @@ function oklabToRgb([L, A, B]) {
   ];
 }
 
+// Mixes two [r, g, b] colours in 0..1, `t` from 0 (all `from`) to 1 (all `to`). This is where
+// the OKLab path lives; mixColors below is the same thing for hex strings.
+export function mixRgb(from, to, t) {
+  if (t <= 0) return from;
+  if (t >= 1) return to;
+
+  const a = rgbToOklab(from);
+  const b = rgbToOklab(to);
+
+  return oklabToRgb([
+    a[0] + (b[0] - a[0]) * t,
+    a[1] + (b[1] - a[1]) * t,
+    a[2] + (b[2] - a[2]) * t,
+  ]);
+}
+
 // Mixes two hex colours, `t` from 0 (all `from`) to 1 (all `to`).
 export function mixColors(from, to, t) {
   if (t <= 0) return from;
   if (t >= 1) return to;
+  return rgbToHex(mixRgb(hexToRgb(from), hexToRgb(to), t));
+}
 
-  const a = rgbToOklab(hexToRgb(from));
-  const b = rgbToOklab(hexToRgb(to));
+// --- what a colour control reads and writes ------------------------------------------------
+//
+// A colour signal holds whatever the sketch wants to hold — a hex string, the 0..1 triplet a
+// shader wants, 0..255 bytes. The control converts, because the alternative is the sketch
+// converting on every read, which is the friction this exists to remove.
+//
+// Every codec speaks hex, because `<input type="color">` speaks hex and nothing else. The
+// conversion is deliberately asymmetric: value -> hex runs on every display update and is
+// read-only, so a value carrying more than sRGB 8-bit keeps all of it; hex -> value runs only
+// when someone actually picked from the swatch, which is the one moment quantising to what
+// the swatch can represent is honest.
+//
+// `fromHex` is handed the value it replaces, because hex cannot carry everything: at zero
+// saturation there is no hue to recover, so an HSL codec that ignored the previous value would
+// snap to red every time a colour was dragged through grey.
+const CODECS = {
+  hex: {
+    toHex: (value) => (isHexColor(value) ? value : "#000000"),
+    fromHex: (hex) => hex,
+  },
+  rgb: {
+    toHex: (value) => rgbToHex(value),
+    fromHex: (hex) => hexToRgb(hex),
+  },
+  rgb255: {
+    toHex: (value) => rgbToHex(value.map((c) => c / 255)),
+    fromHex: (hex) => hexToRgb(hex).map((c) => Math.round(c * 255)),
+  },
+};
 
-  return rgbToHex(oklabToRgb([
-    a[0] + (b[0] - a[0]) * t,
-    a[1] + (b[1] - a[1]) * t,
-    a[2] + (b[2] - a[2]) * t,
-  ]));
+export function colorCodec(format = "hex") {
+  if (format === undefined || format === null || typeof format === "string") {
+    const codec = CODECS[format || "hex"];
+    if (!codec) {
+      throw new TypeError(
+        `[guspira] unknown colour format ${JSON.stringify(format)} — use "hex", "rgb", ` +
+          `"rgb255", or a { toHex, fromHex } pair of your own`
+      );
+    }
+    return codec;
+  }
+  if (typeof format.toHex === "function" && typeof format.fromHex === "function") return format;
+  throw new TypeError(
+    "[guspira] a custom colour format needs both { toHex, fromHex } — fromHex is also handed " +
+      "the value it is replacing, for the components hex cannot carry"
+  );
 }

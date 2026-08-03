@@ -50,7 +50,7 @@ const OPTIONS = [
   "onBeforeRandomize", "migrate", "exclude", "url", "builtin", "lazy", "scheduler", "key",
   "axes", "invertY", "height", "scrub", "curve",
   "stacked", "samples", "over", "below", "average", "interval", "rows", "spellcheck",
-  "paused", "pausedWhen", "series",
+  "paused", "pausedWhen", "series", "interpolate",
 ];
 
 let failures = 0;
@@ -117,6 +117,48 @@ if (missingVars.length) {
     `  ${right ? "ok  " : "FAIL"} the landing page's control count: ${rowControls} (${word ?? "?"} controls)`
   );
   if (!right) failures++;
+}
+
+// The browser suite is one module scope, and a name declared twice in it is a SyntaxError
+// that takes every assertion in the file down with it. That has happened six times. The
+// browser run does report it, but only as "no summary" — this names the clash instead.
+{
+  const suite = read(join(root, "test/index.html"));
+  const seen = new Map();
+  const clashes = [];
+  // Top level of that file is six spaces in; anything deeper is inside a block of its own.
+  for (const line of suite.split("\n")) {
+    const declaration = line.match(/^ {6}(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=/);
+    if (!declaration) continue;
+    const name = declaration[1];
+    if (seen.has(name)) clashes.push(name);
+    else seen.set(name, true);
+  }
+  console.log(
+    `  ${clashes.length ? "FAIL" : "ok  "} no duplicate declarations in the browser suite` +
+      (clashes.length ? ` — ${[...new Set(clashes)].join(", ")}` : ` (${seen.size} names)`)
+  );
+  if (clashes.length) failures++;
+}
+
+// A uniform name that does not exist resolves to null, and gl.uniform*(null, …) is a silent
+// no-op: the control goes dead and nothing anywhere says so. The flagship demo has 22 of them.
+{
+  const warp = read(join(root, "demo/warp.js"));
+  const used = [...new Set([...warp.matchAll(/\bu\.(u[A-Za-z0-9]+)/g)].map((m) => m[1]))];
+  const declared = new Set();
+  for (const match of warp.matchAll(/uniform\s+\w+\s+([^;]+);/g)) {
+    for (const name of match[1].split(",")) declared.add(name.trim());
+  }
+  const missing = used.filter((name) => !declared.has(name));
+  const unused = [...declared].filter((name) => !used.includes(name));
+  const bad = missing.length || unused.length;
+  console.log(
+    `  ${bad ? "FAIL" : "ok  "} warp uniforms: ${used.length} set, ${declared.size} declared` +
+      (missing.length ? ` · set but not declared: ${missing.join(", ")}` : "") +
+      (unused.length ? ` · declared but never set: ${unused.join(", ")}` : "")
+  );
+  if (bad) failures++;
 }
 
 check("GUI methods", [...new Set(methods)]);

@@ -24,7 +24,7 @@ export { precision, formatFloat, snap } from "./format.js";
 
 export { createParams, readStorage, writeStorage } from "./params.js";
 // rgbToHex and isHexColor stay on "guspira/color" — this is the curated set.
-export { mixColors, hexToRgb } from "./color.js";
+export { mixColors, mixRgb, hexToRgb } from "./color.js";
 export { createPresetStore, copyText } from "./presets.js";
 export { bindKey } from "./keyboard.js";
 export {

@@ -184,6 +184,14 @@ while one on the target re-runs once, when something actually changed.
 `elasticOut` — and any `t => t` function of your own works. Two of them overshoot 0…1 on
 purpose, which is the point for a number and clamps for a colour.
 
+Arrays of numbers travel too, a component at a time — so a vector or an `[r, g, b]` colour
+eases like anything else. A colour kept as an array is indistinguishable from a position kept
+as one, so the perceptual path is asked for by name:
+
+```js
+createParams(defaults, { ease: { duration: 350, interpolate: { glow: mixRgb } } });
+```
+
 A tween travels between numbers by default. Pass an interpolator as the fourth argument and it
 travels between anything — `mixColors` moves through OKLab, so the path between two colours
 stays as bright as its ends instead of going through mud:
@@ -286,13 +294,14 @@ gui.addRangeSlider("Size", params.sizeRange, 0.1, 3, 0.05);   // signal holds [m
 gui.addCheckbox("Paused", params.paused);
 gui.addSelect("Palette", params.palette, ["warm", "cool"]);   // or [[value, label], …]
 gui.addSegmented("Blend", params.blend, ["over", "add", "screen"]);   // the same, as buttons
-gui.addColor("Tint", params.tint);
+gui.addColor("Tint", params.tint);                            // "#ff6500" by default
+gui.addColor("Glow", params.glow, { format: "rgb" });         // …or [r, g, b] in 0..1
 gui.addTextInput("Name", params.name);
 gui.addTextArea("Notes", params.notes, { rows: 3 });
 gui.addNumber("Seed", params.seed, { min: 0, step: 1 });
 gui.addVector("Position", params.position, { min: -10, max: 10, step: 0.1 });
 gui.addPad("Aim", params.aim, { invertY: true });             // signal holds [x, y]
-gui.addMonitor("FPS", fps, { format: (v) => v.toFixed(1) });  // read-only
+gui.addMonitor("FPS", fps, { format: (v) => v.toFixed(1), below: 55 });  // read-only
 gui.addGraph("Frame", frame, { over: 16.7 });                 // plotted over time — see Stats
 gui.addButton("Export", () => save());
 gui.addButtons(null, [                                        // several on one row
@@ -349,6 +358,47 @@ the whole control, arrows to move within it.
 
 `addTextArea` takes the full width with its label above, the same as a graph, because a box
 three lines tall has nothing to line up with a label beside it.
+
+### Colour
+
+The signal holds whatever your sketch wants to hold, and the control converts — because the
+alternative is your sketch converting on every read, which is the friction worth removing:
+
+| `format` | the signal holds |
+| --- | --- |
+| `"hex"` *(default)* | `"#ff6500"` |
+| `"rgb"` | `[1, 0.4, 0]` — 0..1, what a shader wants |
+| `"rgb255"` | `[255, 101, 0]` |
+| `{ toHex, fromHex }` | anything at all |
+
+Nothing is inferred. `addVector` can count its own axes because array length is unambiguous,
+but `[1, 0, 0]` is pure red in 0..1 and near-black in 0..255 — so the default stays hex and
+anything else says so.
+
+A codec of your own is two functions, and `fromHex` is handed the value it is replacing:
+
+```js
+gui.addColor("Tint", signal([200, 1, 0.5]), {
+  format: {
+    toHex: ([h, s, l]) => hslToHex(h, s, l),
+    fromHex: (hex, previous) => {
+      const [h, s, l] = hexToHsl(hex);
+      return [s === 0 ? previous[0] : h, s, l];   // a grey keeps the hue it came from
+    },
+  },
+});
+```
+
+That second argument is why HSL and OKLCH are usable rather than merely accepted: hex cannot
+carry a hue through grey, so without the value it replaces, dragging through a desaturated
+colour would snap the hue to red on the way out.
+
+The conversion is deliberately one-way most of the time. Value → hex runs on every display
+update and never writes back, so a value carrying more than 8-bit sRGB keeps all of it. Hex →
+value runs only when someone picked from the swatch — the one moment quantising to what the
+swatch can represent is honest. Editing *in* a wider space needs channel sliders rather than a
+swatch, which is a different control; `createRow` builds it, as
+[demo/extending.html](demo/extending.html) shows.
 
 ### Values with more than one number
 
@@ -599,6 +649,8 @@ pull-side equivalent of simply not calling `push()`. Anything supplying its own 
 the same control without needing the option at all.
 
 `over` and `below` draw a dashed budget line and turn the reading beside it warm when crossed.
+`addMonitor` takes the same two, so a bare readout can say it is past budget without needing a
+plot to say it for it.
 Without a `max` it scales to whatever it has seen. Two things it does that matter:
 
 - **It samples on a clock, not on a change.** A value that holds still for a second is a second

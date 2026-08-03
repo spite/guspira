@@ -7,6 +7,7 @@ import {
 import { precision, formatFloat, snap } from "../src/format.js";
 import { normalizeCurve, assertCurveRange, curveToValue, valueToCurve } from "../src/curve.js";
 import { createStats } from "../src/stats.js";
+import { colorCodec, mixRgb, mixColors, hexToRgb, rgbToHex } from "../src/color.js";
 
 let failures = 0;
 const check = (name, cond) => {
@@ -121,6 +122,38 @@ check("snap keeps a 0.05 grid", snap(0.15, 0.05, 0, 1) === 0.15, String(snap(0.1
 check("snap keeps a 0.25 grid", snap(0.75, 0.25, 0, 1) === 0.75, String(snap(0.75, 0.25, 0, 1)));
 check("snap clamps to the range", snap(9, 0.5, 0, 1) === 1);
 check("formatFloat pads to the step", formatFloat(1, 0.05) === "1.00", formatFloat(1, 0.05));
+
+// colour codecs — what a colour control reads and writes
+{
+  for (const [name, value] of [["hex", "#3d7fb2"], ["rgb", null], ["rgb255", null]]) {
+    const codec = colorCodec(name);
+    const round = codec.toHex(codec.fromHex("#3d7fb2"));
+    check(`the ${name} codec round-trips a colour`, round === "#3d7fb2", round);
+  }
+  check("rgb holds 0..1", colorCodec("rgb").fromHex("#ff0000").join() === "1,0,0");
+  check("rgb255 holds bytes", colorCodec("rgb255").fromHex("#ff0000").join() === "255,0,0");
+  check("no format means hex", colorCodec().toHex("#abcdef") === "#abcdef");
+
+  // A custom codec is handed the value it replaces, because hex cannot carry what a grey lost.
+  const hsl = {
+    toHex: ([h]) => (h === 200 ? "#808080" : "#ff0000"),
+    fromHex: (hex, previous) => (hex === "#808080" ? [previous[0], 0, 0.5] : [0, 1, 0.5]),
+  };
+  const codec = colorCodec(hsl);
+  check("a custom codec keeps what hex cannot carry", codec.fromHex("#808080", [200, 1, 0.5])[0] === 200);
+
+  for (const bad of ["hsl", 42, {}, { toHex: () => "" }]) {
+    let refused = false;
+    try { colorCodec(bad); } catch { refused = true; }
+    check(`colour format ${JSON.stringify(bad)} is refused`, refused);
+  }
+
+  // mixRgb is the OKLab path; mixColors is the same thing for hex strings
+  const mixed = mixColors("#ff6500", "#0066ff", 0.5);
+  const viaRgb = rgbToHex(mixRgb(hexToRgb("#ff6500"), hexToRgb("#0066ff"), 0.5));
+  check("mixColors and mixRgb agree", mixed === viaRgb, `${mixed} vs ${viaRgb}`);
+  check("mixRgb holds its ends", mixRgb([1, 0, 0], [0, 0, 1], 0).join() === "1,0,0");
+}
 
 // performance counters — measured against a clock we control, so the numbers are exact
 {

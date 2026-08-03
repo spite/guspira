@@ -87,16 +87,27 @@ export function createParams(defaults, options = {}) {
   }
 
   // What *can* travel is decided by the value — numbers ease, hex colours ease through OKLab,
-  // and anything else has no meaningful path between two of them. What *should* is `only` and
-  // `skip`. A parameter that travels is a tweened signal; everything else is a plain one, and
-  // both answer `.target()`, so nothing downstream has to know which is which.
+  // arrays of numbers ease a component at a time, and anything else has no meaningful path
+  // between two of them. What *should* is `only` and `skip`. A parameter that travels is a
+  // tweened signal; everything else is a plain one, and both answer `.target()`, so nothing
+  // downstream has to know which is which.
+  //
+  // A colour kept as [r, g, b] is indistinguishable from a position kept as [x, y, z] — same
+  // shape, different meaning — so the componentwise path is the default and a perceptual one
+  // is asked for by name through `interpolate`.
+  const lerpArray = (from, to, t) => from.map((v, i) => v + (to[i] - v) * t);
+  const numericArray = (v) => Array.isArray(v) && v.length > 0 && v.every((n) => typeof n === "number");
+
   const easedSignal = (key, value) => {
     if (!easing) return signal(value);
-    const { duration = 400, easing: curve, only = null, skip = [] } = easing;
+    const { duration = 400, easing: curve, only = null, skip = [], interpolate = {} } = easing;
     const wanted = (only ? only.includes(key) : true) && !skip.includes(key);
     if (!wanted) return signal(value);
+    const custom = interpolate[key];
+    if (custom) return tweened(value, duration, curve, custom);
     if (typeof value === "number") return tweened(value, duration, curve);
     if (isHexColor(value)) return tweened(value, duration, curve, mixColors);
+    if (numericArray(value)) return tweened(value, duration, curve, lerpArray);
     return signal(value);
   };
 

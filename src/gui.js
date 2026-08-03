@@ -9,6 +9,7 @@ import { formatFloat, snap } from "./format.js";
 import "./range-slider.js";
 import "./stats-graph.js";
 import { normalizeCurve, assertCurveRange, curveToValue } from "./curve.js";
+import { colorCodec } from "./color.js";
 import { random, randomInRange, randomElement, randomHexColor, randomBool } from "./random.js";
 import { bindKey } from "./keyboard.js";
 
@@ -897,13 +898,19 @@ class GUI {
     return controller;
   }
 
+  // The signal holds whatever the sketch wants — a hex string by default, or the 0..1 triplet
+  // a shader wants with `{ format: "rgb" }`, or anything at all with a codec of your own. The
+  // control converts; see colorCodec in color.js for why the two directions are not symmetric.
   addColor(label, value, a) {
     const opts = readOptions(a);
     const sig = toSignal(value);
+    const codec = colorCodec(opts.format);
     const controller = this.createRow(label, opts);
 
+    // Through the codec too, so a reroll produces the type the signal already holds rather
+    // than dropping a hex string into an array.
     this._randomizable(controller, () => {
-      sig.set(randomHexColor());
+      sig.set(codec.fromHex(randomHexColor(), targetOf(sig).peek()));
       opts.onChange && opts.onChange(sig());
     }, opts);
 
@@ -911,11 +918,16 @@ class GUI {
     input.type = "color";
     input.className = "gui-color";
     input.oninput = () => {
-      sig.set(input.value);
-      opts.onChange && opts.onChange(input.value);
+      // Handed the value being replaced: hex cannot carry a hue through grey, and only the
+      // codec knows whether that matters for the format it speaks.
+      const next = codec.fromHex(input.value, targetOf(sig).peek());
+      sig.set(next);
+      opts.onChange && opts.onChange(next);
     };
 
-    controller.bind(() => (input.value = targetOf(sig)()));
+    // Display only — this never writes back, so a value richer than 8-bit sRGB keeps all of it
+    // until somebody actually picks from the swatch.
+    controller.bind(() => (input.value = codec.toHex(targetOf(sig)())));
     controller.row.append(input);
     controller.el = input;
     controller.signal = sig;
@@ -1409,7 +1421,15 @@ class GUI {
     const out = document.createElement("span");
     out.className = "gui-monitor";
     const format = opts.format || ((v) => String(v));
-    controller.bind(() => (out.textContent = format(sig())));
+    // The same budget a graph takes, so a bare readout can say it is over one too rather than
+    // leaving that to whichever rows happen to be plotted.
+    const breached = (v) =>
+      (opts.over !== undefined && v > opts.over) || (opts.below !== undefined && v < opts.below);
+    controller.bind(() => {
+      const v = sig();
+      out.textContent = format(v);
+      out.classList.toggle("gui-over", typeof v === "number" && breached(v));
+    });
 
     controller.row.append(out);
     controller.el = out;

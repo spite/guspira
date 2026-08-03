@@ -47,6 +47,7 @@ var Guspira = (() => {
     isSignal: () => isSignal,
     microtask: () => microtask,
     mixColors: () => mixColors,
+    mixRgb: () => mixRgb,
     precision: () => precision,
     random: () => random,
     randomBool: () => randomBool,
@@ -1152,6 +1153,92 @@ var Guspira = (() => {
   if (!customElements.get("stats-graph")) customElements.define("stats-graph", StatsGraph);
   var stats_graph_default = StatsGraph;
 
+  // src/color.js
+  var clamp01 = (v) => v < 0 ? 0 : v > 1 ? 1 : v;
+  var toLinear = (c) => c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  var toSrgb = (c) => c <= 31308e-7 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+  var isHexColor = (value) => typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value);
+  function hexToRgb(hex) {
+    return [
+      parseInt(hex.slice(1, 3), 16) / 255,
+      parseInt(hex.slice(3, 5), 16) / 255,
+      parseInt(hex.slice(5, 7), 16) / 255
+    ];
+  }
+  function rgbToHex(rgb) {
+    return `#${rgb.map(
+      (c) => Math.round(clamp01(c) * 255).toString(16).padStart(2, "0")
+    ).join("")}`;
+  }
+  function rgbToOklab([r, g, b]) {
+    const lr = toLinear(r);
+    const lg = toLinear(g);
+    const lb = toLinear(b);
+    const l = Math.cbrt(0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb);
+    const m = Math.cbrt(0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb);
+    const s = Math.cbrt(0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb);
+    return [
+      0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+      1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
+      0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s
+    ];
+  }
+  function oklabToRgb([L, A, B]) {
+    const l = (L + 0.3963377774 * A + 0.2158037573 * B) ** 3;
+    const m = (L - 0.1055613458 * A - 0.0638541728 * B) ** 3;
+    const s = (L - 0.0894841775 * A - 1.291485548 * B) ** 3;
+    return [
+      toSrgb(clamp01(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s)),
+      toSrgb(clamp01(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s)),
+      toSrgb(clamp01(-0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s))
+    ];
+  }
+  function mixRgb(from, to, t) {
+    if (t <= 0) return from;
+    if (t >= 1) return to;
+    const a = rgbToOklab(from);
+    const b = rgbToOklab(to);
+    return oklabToRgb([
+      a[0] + (b[0] - a[0]) * t,
+      a[1] + (b[1] - a[1]) * t,
+      a[2] + (b[2] - a[2]) * t
+    ]);
+  }
+  function mixColors(from, to, t) {
+    if (t <= 0) return from;
+    if (t >= 1) return to;
+    return rgbToHex(mixRgb(hexToRgb(from), hexToRgb(to), t));
+  }
+  var CODECS = {
+    hex: {
+      toHex: (value) => isHexColor(value) ? value : "#000000",
+      fromHex: (hex) => hex
+    },
+    rgb: {
+      toHex: (value) => rgbToHex(value),
+      fromHex: (hex) => hexToRgb(hex)
+    },
+    rgb255: {
+      toHex: (value) => rgbToHex(value.map((c) => c / 255)),
+      fromHex: (hex) => hexToRgb(hex).map((c) => Math.round(c * 255))
+    }
+  };
+  function colorCodec(format = "hex") {
+    if (format === void 0 || format === null || typeof format === "string") {
+      const codec = CODECS[format || "hex"];
+      if (!codec) {
+        throw new TypeError(
+          `[guspira] unknown colour format ${JSON.stringify(format)} — use "hex", "rgb", "rgb255", or a { toHex, fromHex } pair of your own`
+        );
+      }
+      return codec;
+    }
+    if (typeof format.toHex === "function" && typeof format.fromHex === "function") return format;
+    throw new TypeError(
+      "[guspira] a custom colour format needs both { toHex, fromHex } — fromHex is also handed the value it is replacing, for the components hex cannot carry"
+    );
+  }
+
   // src/random.js
   var source = Math.random;
   function setRandomSource(fn) {
@@ -1890,22 +1977,27 @@ var Guspira = (() => {
       controller.signal = sig;
       return controller;
     }
+    // The signal holds whatever the sketch wants — a hex string by default, or the 0..1 triplet
+    // a shader wants with `{ format: "rgb" }`, or anything at all with a codec of your own. The
+    // control converts; see colorCodec in color.js for why the two directions are not symmetric.
     addColor(label, value, a) {
       const opts = readOptions(a);
       const sig = toSignal(value);
+      const codec = colorCodec(opts.format);
       const controller = this.createRow(label, opts);
       this._randomizable(controller, () => {
-        sig.set(randomHexColor());
+        sig.set(codec.fromHex(randomHexColor(), targetOf(sig).peek()));
         opts.onChange && opts.onChange(sig());
       }, opts);
       const input = document.createElement("input");
       input.type = "color";
       input.className = "gui-color";
       input.oninput = () => {
-        sig.set(input.value);
-        opts.onChange && opts.onChange(input.value);
+        const next = codec.fromHex(input.value, targetOf(sig).peek());
+        sig.set(next);
+        opts.onChange && opts.onChange(next);
       };
-      controller.bind(() => input.value = targetOf(sig)());
+      controller.bind(() => input.value = codec.toHex(targetOf(sig)()));
       controller.row.append(input);
       controller.el = input;
       controller.signal = sig;
@@ -2299,7 +2391,12 @@ var Guspira = (() => {
       const out = document.createElement("span");
       out.className = "gui-monitor";
       const format = opts.format || ((v) => String(v));
-      controller.bind(() => out.textContent = format(sig()));
+      const breached = (v) => opts.over !== void 0 && v > opts.over || opts.below !== void 0 && v < opts.below;
+      controller.bind(() => {
+        const v = sig();
+        out.textContent = format(v);
+        out.classList.toggle("gui-over", typeof v === "number" && breached(v));
+      });
       controller.row.append(out);
       controller.el = out;
       controller.signal = sig;
@@ -2431,58 +2528,6 @@ var Guspira = (() => {
   };
   var gui_default = GUI;
 
-  // src/color.js
-  var clamp01 = (v) => v < 0 ? 0 : v > 1 ? 1 : v;
-  var toLinear = (c) => c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-  var toSrgb = (c) => c <= 31308e-7 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
-  var isHexColor = (value) => typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value);
-  function hexToRgb(hex) {
-    return [
-      parseInt(hex.slice(1, 3), 16) / 255,
-      parseInt(hex.slice(3, 5), 16) / 255,
-      parseInt(hex.slice(5, 7), 16) / 255
-    ];
-  }
-  function rgbToHex(rgb) {
-    return `#${rgb.map(
-      (c) => Math.round(clamp01(c) * 255).toString(16).padStart(2, "0")
-    ).join("")}`;
-  }
-  function rgbToOklab([r, g, b]) {
-    const lr = toLinear(r);
-    const lg = toLinear(g);
-    const lb = toLinear(b);
-    const l = Math.cbrt(0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb);
-    const m = Math.cbrt(0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb);
-    const s = Math.cbrt(0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb);
-    return [
-      0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
-      1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
-      0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s
-    ];
-  }
-  function oklabToRgb([L, A, B]) {
-    const l = (L + 0.3963377774 * A + 0.2158037573 * B) ** 3;
-    const m = (L - 0.1055613458 * A - 0.0638541728 * B) ** 3;
-    const s = (L - 0.0894841775 * A - 1.291485548 * B) ** 3;
-    return [
-      toSrgb(clamp01(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s)),
-      toSrgb(clamp01(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s)),
-      toSrgb(clamp01(-0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s))
-    ];
-  }
-  function mixColors(from, to, t) {
-    if (t <= 0) return from;
-    if (t >= 1) return to;
-    const a = rgbToOklab(hexToRgb(from));
-    const b = rgbToOklab(hexToRgb(to));
-    return rgbToHex(oklabToRgb([
-      a[0] + (b[0] - a[0]) * t,
-      a[1] + (b[1] - a[1]) * t,
-      a[2] + (b[2] - a[2]) * t
-    ]));
-  }
-
   // src/params.js
   var sameType = (a, b) => {
     if (Array.isArray(a) || Array.isArray(b)) {
@@ -2545,13 +2590,18 @@ var Guspira = (() => {
         if (value !== void 0) stored[key] = value;
       }
     }
+    const lerpArray = (from, to, t) => from.map((v, i) => v + (to[i] - v) * t);
+    const numericArray = (v) => Array.isArray(v) && v.length > 0 && v.every((n) => typeof n === "number");
     const easedSignal = (key, value) => {
       if (!easing) return signal(value);
-      const { duration = 400, easing: curve, only = null, skip = [] } = easing;
+      const { duration = 400, easing: curve, only = null, skip = [], interpolate = {} } = easing;
       const wanted = (only ? only.includes(key) : true) && !skip.includes(key);
       if (!wanted) return signal(value);
+      const custom = interpolate[key];
+      if (custom) return tweened(value, duration, curve, custom);
       if (typeof value === "number") return tweened(value, duration, curve);
       if (isHexColor(value)) return tweened(value, duration, curve, mixColors);
+      if (numericArray(value)) return tweened(value, duration, curve, lerpArray);
       return signal(value);
     };
     const params = {};

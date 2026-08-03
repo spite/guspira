@@ -68,7 +68,8 @@ gui.addGraph("Paint only", paint, {
   over: 8,
   format: (v) => `${v.toFixed(1)} ms`,
 });
-gui.addMonitor("Particles drawn", drawn, { format: (v) => v.toFixed(0) });
+// A readout takes the same budget a graph does: past it, the number says so.
+gui.addMonitor("Particles drawn", drawn, { over: 8000, format: (v) => v.toFixed(0) });
 gui.addMonitor("Frame (250ms avg)", frameAvg, { format: (v) => `${v.toFixed(2)} ms` });
 
 

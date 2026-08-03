@@ -154,7 +154,8 @@ uniform float uTime, uScale, uWarp, uLacunarity, uGain, uZoom, uTwist, uRipple;
 uniform float uFreq, uPhase, uSpread, uContrast, uSat, uGlow, uVignette, uGrain;
 uniform int uSymmetry;
 uniform vec3 uA, uB;
-uniform vec2 uDrift;
+uniform vec2 uDriftOffset;
+uniform float uRipplePhase;
 
 #define OCTAVES ${octaves}
 
@@ -223,12 +224,17 @@ void main() {
   // twist and ripple, both radial
   float r = length(uv);
   float a = atan(uv.y, uv.x) + uTwist * r * 2.0;
-  uv = vec2(cos(a), sin(a)) * (r + uRipple * 0.08 * sin(r * 12.0 - uTime * 2.0));
+  uv = vec2(cos(a), sin(a)) * (r + uRipple * 0.08 * sin(r * 12.0 - uRipplePhase));
 
-  vec2 p = uv * uScale + uDrift * uTime;
+  // The drift arrives already accumulated and already bounded — see the note by driftOffset()
+  // in the loop below for why it is not simply velocity times elapsed time.
+  vec2 p = uv * uScale + uDriftOffset;
 
   // domain warping: noise offsetting noise, twice
-  vec2 q = vec2(fbm(p + vec2(0.0, uTime * 0.15)), fbm(p + vec2(5.2, 1.3)));
+  // The warp's own drift is bounded the same way: a very large circle rather than a straight
+  // line, so this offset never grows past 2 * 8 however long the page is left open.
+  vec2 warpDrift = 8.0 * vec2(1.0 - cos(uTime * 0.01875), sin(uTime * 0.01875));
+  vec2 q = vec2(fbm(p + warpDrift), fbm(p + vec2(5.2, 1.3)));
   vec2 s = vec2(fbm(p + uWarp * q + vec2(1.7, 9.2)), fbm(p + uWarp * q + vec2(8.3, 2.8)));
   float v = fbm(p + uWarp * s);
 
@@ -324,6 +330,35 @@ if (gl) {
 let simTime = 0;
 let last = performance.now();
 
+// Straight-line drift walks the noise coordinate off to infinity, and a float32 coordinate
+// stops being able to say where it is inside a cell long before that: at eight octaves and a
+// lacunarity of 3.2 the coordinate is multiplied by ~3400, so after ten minutes there were
+// about sixteen positions left between one lattice point and the next, and the field visibly
+// stepped. The fix is to make the drift a very large circle instead of a line. It starts off
+// in the direction asked for and at the speed asked for — for minutes it is indistinguishable
+// from a straight line — but it never leaves a patch of radius 2R, so the precision stops
+// getting worse instead of decaying all afternoon.
+//
+// The cost, stated plainly: given long enough the field returns to where it began. At the
+// default drift that is about forty minutes.
+const DRIFT_RADIUS = 24;
+
+function driftOffset(dx, dy, t) {
+  const speed = Math.hypot(dx, dy);
+  if (speed < 1e-6) return [0, 0];
+  const ux = dx / speed;
+  const uy = dy / speed;
+  const theta = (t * speed) / DRIFT_RADIUS;
+  const along = Math.sin(theta);
+  const across = 1 - Math.cos(theta);
+  // Perpendicular to the drift direction, so the arc leaves the origin heading exactly where
+  // the sliders pointed it.
+  return [
+    DRIFT_RADIUS * (ux * along - uy * across),
+    DRIFT_RADIUS * (uy * along + ux * across),
+  ];
+}
+
 function render(now) {
   requestAnimationFrame(render);
   if (!gl || !program) return;
@@ -362,7 +397,11 @@ function render(now) {
   gl.uniform1i(u.uSymmetry, Math.round(params.symmetry.peek()));
   gl.uniform3fv(u.uA, hexToRgb(params.colourA()));
   gl.uniform3fv(u.uB, hexToRgb(params.colourB()));
-  gl.uniform2f(u.uDrift, params.driftX(), params.driftY());
+  const [offsetX, offsetY] = driftOffset(params.driftX(), params.driftY(), simTime);
+  gl.uniform2f(u.uDriftOffset, offsetX, offsetY);
+  // Wrapped here, in double precision, rather than in the shader where simTime * 2 has lost
+  // its low bits by the time it reaches sin().
+  gl.uniform1f(u.uRipplePhase, (simTime * 2) % (Math.PI * 2));
   uniformTimer.end();
 
   drawTimer.start();
