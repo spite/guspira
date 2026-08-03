@@ -29,8 +29,13 @@
   --chrome-btn: #12131a;
   --chrome-border: #262838;
   --eyebrow-bg: #14151d;
+  /* The glow fades to its own hue at zero alpha, not to the `transparent` keyword — that
+     keyword is transparent *black*, and a warm glow interpolating towards it greys out before
+     it disappears. Each pair must stay in step. */
   --hero-glow-a: hsl(28 90% 50% / 0.26);
+  --hero-glow-a-out: hsl(28 90% 50% / 0);
   --hero-glow-b: hsl(348 70% 45% / 0.18);
+  --hero-glow-b-out: hsl(348 70% 45% / 0);
 
   /* Cards carry a hue of their own (--h) and take their saturation and lightness from the
      theme, so a tinted card is dark on a dark page and pale on a light one from one
@@ -78,7 +83,9 @@
   --chrome-border: #dedee6;
   --eyebrow-bg: #ffffff;
   --hero-glow-a: hsl(28 95% 55% / 0.22);
+  --hero-glow-a-out: hsl(28 95% 55% / 0);
   --hero-glow-b: hsl(348 80% 60% / 0.14);
+  --hero-glow-b-out: hsl(348 80% 60% / 0);
 
   --tint-bg: 62% 96%;
   --tint-bg-hover: 66% 93%;
@@ -142,7 +149,9 @@
     --chrome-border: #dedee6;
     --eyebrow-bg: #ffffff;
     --hero-glow-a: hsl(28 95% 55% / 0.22);
+    --hero-glow-a-out: hsl(28 95% 55% / 0);
     --hero-glow-b: hsl(348 80% 60% / 0.14);
+    --hero-glow-b-out: hsl(348 80% 60% / 0);
 
     --tint-bg: 62% 96%;
     --tint-bg-hover: 66% 93%;

@@ -22,7 +22,12 @@ const rafCancel = hasRAF ? (id) => cancelAnimationFrame(id) : (id) => clearTimeo
 
 let activeEffect = null;
 let batchDepth = 0;
+// The queue an update drains. The Set answers "is this effect already waiting", so one woken
+// twice still runs once; the array remembers the order they were woken in. They are kept in
+// step: an effect is in exactly one of the two states, waiting or already run.
 const pending = new Set();
+const queue = [];
+let queueIndex = 0;
 
 class ReactiveEffect {
   constructor(fn, scheduler) {
@@ -33,6 +38,13 @@ class ReactiveEffect {
     this.paused = false;
     this.dirty = false;
     this.cleanupFn = null;
+    this.children = null;
+    // An effect born while another one is running belongs to it, and is disposed when the
+    // parent re-runs or stops — the same lifetime its cleanup function gets. Without this,
+    // an effect that creates effects starts a fresh one on every pass, never disposes the
+    // previous, and leaves them all running after the parent has stopped. `untrack` is the
+    // way out: nothing created inside it has a parent, so it lives until stopped by hand.
+    if (activeEffect) (activeEffect.children ??= []).push(this);
   }
 
   // What a dependency change does to this effect: run it, or hand it to its scheduler to be
@@ -64,6 +76,7 @@ class ReactiveEffect {
 
   run() {
     if (!this.active) return;
+    this.stopChildren();
     this.runCleanup();
     this.cleanup();
     // Saved and restored rather than nulled, so an effect created inside another effect
@@ -94,8 +107,18 @@ class ReactiveEffect {
     this.deps.clear();
   }
 
+  // Cleared before the list is walked: a child stopping itself in the process must not be
+  // walking the array we are still iterating.
+  stopChildren() {
+    if (!this.children) return;
+    const children = this.children;
+    this.children = null;
+    children.forEach((child) => child.stop());
+  }
+
   stop() {
     if (!this.active) return;
+    this.stopChildren();
     this.runCleanup();
     this.cleanup();
     this.active = false;
@@ -122,15 +145,22 @@ function drain() {
   batchDepth++; // writes made by these effects join this pass instead of starting their own
   try {
     let guard = 0;
-    while (pending.size) {
+    // Walked with an index rather than by lifting entries out of the Set: taking the first
+    // entry means building a fresh iterator that has to step over everything already removed,
+    // so draining n effects would cost O(n²). Effects woken part-way through are appended and
+    // reached by the same loop, which keeps the order a single queue gives — an effect still
+    // waiting is never queued a second time, so it runs once however many paths reach it.
+    while (queueIndex < queue.length) {
       if (++guard > 100000) {
-        pending.clear();
+        reset();
         throw new Error(
           "[guspira] reactive update never settled — an effect is very likely writing a " +
             "signal it also reads. Use peek() to read without subscribing, or untrack()."
         );
       }
-      const effect = pending.values().next().value;
+      const effect = queue[queueIndex++];
+      // Dropped from the waiting set before it runs, so an effect that wakes itself queues
+      // again rather than being silently swallowed.
       pending.delete(effect);
       try {
         effect.notify();
@@ -138,9 +168,18 @@ function drain() {
         reportError(error);
       }
     }
+    reset();
   } finally {
     batchDepth--;
   }
+}
+
+// Emptied in one go once an update has settled, so the array does not hold on to every effect
+// it ran until the next write comes along.
+function reset() {
+  pending.clear();
+  queue.length = 0;
+  queueIndex = 0;
 }
 
 function trigger(subscribers) {
@@ -149,7 +188,11 @@ function trigger(subscribers) {
   try {
     // Only adds to the queue, so there is nothing to disturb by iterating the live set, and
     // no copy to allocate.
-    subscribers.forEach((effect) => pending.add(effect));
+    subscribers.forEach((effect) => {
+      if (pending.has(effect)) return;
+      pending.add(effect);
+      queue.push(effect);
+    });
   } finally {
     batchDepth--;
     if (batchDepth === 0) drain();

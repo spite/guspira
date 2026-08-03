@@ -104,16 +104,16 @@
       params.on.set(false);
       box.el.style.transition = "";
 
-      // --- select, plus the legacy (label, options, signal) argument order ---------
+      // --- select ------------------------------------------------------------------
       const sel = gui.addSelect("Mode", params.mode, [["a", "A"], ["b", "B"]]);
       sel.el.value = "b";
       sel.el.dispatchEvent(new Event("change"));
       check("select change writes the signal", params.mode() === "b");
       params.mode.set("a");
       check("signal write moves the select", sel.el.value === "a");
-      const legacy = gui.addSelect("Legacy", ["x", "y"], params.label);
-      check("legacy argument order still binds", legacy.el.value === "x", legacy.el.value);
-      check("legacy options are the list", legacy.el.options.length === 2);
+      const pairs = gui.addSelect("Pairs", params.label, [["x", "First"], ["y", "Second"]]);
+      check("a pair list shows its labels", pairs.el.options[0].textContent === "First");
+      check("…and carries its values", pairs.el.options[0].value === "x");
 
       // --- randomize ---------------------------------------------------------------
       params.amount.set(0.5);
@@ -292,12 +292,12 @@
       q.el.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
       check("a 0.25 step keeps two decimals", qSig() === 0.75, String(qSig()));
 
-      // a button's trailing function is `disabled`, as it always was
+      // a button takes the same options object as everything else
       const gateB = signal(true);
-      const legacyBtn = gui.addButton("Legacy button", () => {}, () => gateB());
-      check("addButton's positional function still disables", legacyBtn.row.classList.contains("disabled"));
+      const gatedBtn = gui.addButton("Gated button", () => {}, { disabledWhen: () => gateB() });
+      check("a button disables from a predicate", gatedBtn.row.classList.contains("disabled"));
       gateB.set(false);
-      check("…and it stays reactive", !legacyBtn.row.classList.contains("disabled"));
+      check("…and it stays reactive", !gatedBtn.row.classList.contains("disabled"));
 
       // selects hand back the option's own type
       const numSig = signal(2);
@@ -450,6 +450,66 @@
         slowRow.row.querySelector(".gui-slider-val").textContent === "1.00",
         slowRow.row.querySelector(".gui-slider-val").textContent);
       slowRow.destroy();
+
+      // --- presets, out to a file and back ---------------------------------------------
+      // The most breakable path in the library: it crosses Blob, an <a download>, FileReader
+      // and JSON.parse, and none of that is reachable from the node suites.
+      {
+        const fileParams = createParams({ amount: 0.5, tint: "#ff8a3d", mode: "a" });
+        const fileStore = createPresetStore(fileParams, { builtin: {} });
+
+        // exportFile hands a Blob to URL.createObjectURL and clicks a link; stub the two so
+        // the download is captured instead of attempted.
+        const realCreate = URL.createObjectURL;
+        const realRevoke = URL.revokeObjectURL;
+        const realClick = HTMLAnchorElement.prototype.click;
+        let captured = null;
+        let downloadName = null;
+        URL.createObjectURL = (blob) => { captured = blob; return "blob:stub"; };
+        URL.revokeObjectURL = () => {};
+        HTMLAnchorElement.prototype.click = function () { downloadName = this.download; };
+
+        fileParams.amount.set(0.25);
+        fileParams.tint.set("#2f6fd0");
+        fileStore.exportFile("a-look");
+
+        URL.createObjectURL = realCreate;
+        URL.revokeObjectURL = realRevoke;
+        HTMLAnchorElement.prototype.click = realClick;
+
+        check("exportFile produced a download", !!captured && downloadName === "a-look.json", String(downloadName));
+
+        const text = await captured.text();
+        const parsed = JSON.parse(text);
+        check("…of the current values", parsed.amount === 0.25 && parsed.tint === "#2f6fd0", text);
+
+        // now the other direction, from a real File
+        fileParams.amount.set(0.9);
+        fileParams.tint.set("#ffffff");
+        const file = new File([text], "a-look.json", { type: "application/json" });
+        const applied = await fileStore.importFile(file);
+        check("importFile applied the file", fileParams.amount() === 0.25 && fileParams.tint() === "#2f6fd0",
+          `${fileParams.amount()} ${fileParams.tint()}`);
+        check("…and reported what it applied", applied.includes("amount") && applied.includes("tint"),
+          applied.join(","));
+
+        // a wrapped file, the shape a hand-written preset tends to take
+        const wrapped = new File(
+          [JSON.stringify({ name: "wrapped", params: { amount: 0.75 } })],
+          "w.json",
+          { type: "application/json" }
+        );
+        await fileStore.importFile(wrapped);
+        check("a { name, params } file works too", fileParams.amount() === 0.75, String(fileParams.amount()));
+        check("…and is remembered under its name", fileStore.userNames().includes("wrapped"),
+          fileStore.userNames().join(","));
+
+        // and a broken one rejects rather than throwing into the void
+        let rejected = false;
+        await fileStore.importFile(new File(["{ not json"], "bad.json")).catch(() => (rejected = true));
+        check("a malformed file rejects", rejected);
+        check("…leaving the values alone", fileParams.amount() === 0.75, String(fileParams.amount()));
+      }
 
       // --- panel destroy --------------------------------------------------------------
       const gui4 = new GUI("Bye", host);

@@ -66,9 +66,29 @@
   --gui-check: #f4f4f5;
   box-shadow: var(--shadow-panel, 0 2px 6px rgba(0, 0, 0, 0.12));
 }
+.gui-title,
+.gui-section-title {
+  appearance: none;
+  -webkit-appearance: none;
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+  color: inherit;
+}
+.gui-title:focus-visible,
+.gui-section-title:focus-visible,
+.gui-tab-btn:focus-visible {
+  outline: 2px solid var(--gui-focus);
+  outline-offset: 2px;
+}
 .gui-title {
   display: flex;
   flex-direction: row;
+  font-size: 12px;
   font-weight: bold;
   justify-content: space-between;
   align-items: center;
@@ -141,9 +161,7 @@
   opacity: 1;
   text-decoration-color: var(--gui-muted);
 }
-.gui input,
-.gui select,
-.gui button {
+:where(.gui) :where(input, select, button) {
   background: var(--gui-field-bg);
   border: 1px solid var(--gui-border);
   color: var(--gui-fg);

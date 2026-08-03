@@ -11,6 +11,8 @@ var rafCancel = hasRAF ? (id) => cancelAnimationFrame(id) : (id) => clearTimeout
 var activeEffect = null;
 var batchDepth = 0;
 var pending = /* @__PURE__ */ new Set();
+var queue = [];
+var queueIndex = 0;
 var ReactiveEffect = class {
   constructor(fn, scheduler) {
     this.fn = fn;
@@ -20,6 +22,8 @@ var ReactiveEffect = class {
     this.paused = false;
     this.dirty = false;
     this.cleanupFn = null;
+    this.children = null;
+    if (activeEffect) (activeEffect.children ??= []).push(this);
   }
   // What a dependency change does to this effect: run it, or hand it to its scheduler to be
   // run later. A paused effect only remembers that it went stale.
@@ -47,6 +51,7 @@ var ReactiveEffect = class {
   }
   run() {
     if (!this.active) return;
+    this.stopChildren();
     this.runCleanup();
     this.cleanup();
     const prev = activeEffect;
@@ -69,8 +74,17 @@ var ReactiveEffect = class {
     this.deps.forEach((depSet) => depSet.delete(this));
     this.deps.clear();
   }
+  // Cleared before the list is walked: a child stopping itself in the process must not be
+  // walking the array we are still iterating.
+  stopChildren() {
+    if (!this.children) return;
+    const children = this.children;
+    this.children = null;
+    children.forEach((child) => child.stop());
+  }
   stop() {
     if (!this.active) return;
+    this.stopChildren();
     this.runCleanup();
     this.cleanup();
     this.active = false;
@@ -89,14 +103,14 @@ function drain() {
   batchDepth++;
   try {
     let guard = 0;
-    while (pending.size) {
+    while (queueIndex < queue.length) {
       if (++guard > 1e5) {
-        pending.clear();
+        reset();
         throw new Error(
           "[guspira] reactive update never settled — an effect is very likely writing a signal it also reads. Use peek() to read without subscribing, or untrack()."
         );
       }
-      const effect2 = pending.values().next().value;
+      const effect2 = queue[queueIndex++];
       pending.delete(effect2);
       try {
         effect2.notify();
@@ -104,15 +118,25 @@ function drain() {
         reportError(error);
       }
     }
+    reset();
   } finally {
     batchDepth--;
   }
+}
+function reset() {
+  pending.clear();
+  queue.length = 0;
+  queueIndex = 0;
 }
 function trigger(subscribers) {
   if (subscribers.size === 0) return;
   batchDepth++;
   try {
-    subscribers.forEach((effect2) => pending.add(effect2));
+    subscribers.forEach((effect2) => {
+      if (pending.has(effect2)) return;
+      pending.add(effect2);
+      queue.push(effect2);
+    });
   } finally {
     batchDepth--;
     if (batchDepth === 0) drain();
@@ -154,14 +178,14 @@ function computed(fn) {
   return computedSignal;
 }
 function createScheduler(driver = null) {
-  const queue = /* @__PURE__ */ new Set();
+  const queue2 = /* @__PURE__ */ new Set();
   let cancel = null;
   let paused = false;
   const flush = () => {
     cancel = null;
     if (paused) return 0;
-    const jobs = [...queue];
-    queue.clear();
+    const jobs = [...queue2];
+    queue2.clear();
     for (const job of jobs) {
       try {
         job.run();
@@ -172,18 +196,18 @@ function createScheduler(driver = null) {
     return jobs.length;
   };
   const schedule = (job) => {
-    queue.add(job);
+    queue2.add(job);
     if (driver && !cancel && !paused) cancel = driver(flush);
   };
   return {
     schedule,
     flush,
     get size() {
-      return queue.size;
+      return queue2.size;
     },
     // Drops pending work without running it.
     clear() {
-      queue.clear();
+      queue2.clear();
       if (cancel) cancel();
       cancel = null;
     },
@@ -197,7 +221,7 @@ function createScheduler(driver = null) {
     resume() {
       if (!paused) return;
       paused = false;
-      if (queue.size) flush();
+      if (queue2.size) flush();
     },
     get paused() {
       return paused;

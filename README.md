@@ -1,8 +1,6 @@
 # Guspira
 
-A small reactive GUI toolkit for creative-coding sketches — the control panel from
-[polygon-shredder-2026](../polygon-shredder-2026) and [inktober-2025](../inktober-2025),
-merged into one library. Signals, sliders, tabs, presets.
+A small reactive GUI toolkit for creative-coding sketches. Signals, sliders, tabs, presets.
 
 ```js
 import GUI from "guspira/gui";
@@ -44,8 +42,8 @@ import { signal, effect } from "./src/reactive.js";
 Import from `guspira` (or `src/index.js`) to get everything at once. `src/reactive.js` has no
 DOM dependency at all, so it is usable on its own — in a worker, in a test.
 
-For a page that is not using modules, `dist/guspira.iife.js` puts the same API on a
-`Guspira` global:
+For a page that is not using modules, `dist/guspira.iife.js` puts the same API on a `Guspira`
+global:
 
 ```html
 <link rel="stylesheet" href="dist/guspira.css" />
@@ -64,13 +62,10 @@ npm start          # then open http://localhost:3000/
 The root page explains the two halves — signals, and the panel built on them — with both
 running live on it. `/demo/` is the gallery.
 
-Page styling lives in `css/site.css`, kept apart from `css/gui.css` so it stays obvious which
-rules belong to the toolkit and which belong to the pages around it.
-
 ## Demos
 
-`demo/` is a gallery — one page per part of the toolkit, each a working sketch with its
-panel beside it and its source in `demo/<name>.js`.
+`demo/` is a gallery — one page per part of the toolkit, each a working sketch with its panel
+beside it and its source in `demo/<name>.js`.
 
 | | |
 | --- | --- |
@@ -80,7 +75,7 @@ panel beside it and its source in `demo/<name>.js`.
 | [Tabs & sections](demo/structure.html) | grouping, folding, conditional sections, remembered layout |
 | [Controllers](demo/controllers.html) | building and tearing down rows at runtime |
 | [Extending](demo/extending.html) | custom controls from `createRow` + `bind` + `onDestroy` |
-| [Reactivity](demo/reactivity.html) | signals, computed, batching, tweens — with every effect run counted |
+| [Reactivity](demo/reactivity.html) | signals, computed, batching — with every effect run counted |
 | [Values that travel](demo/easing.html) | tweens: the panel shows the target, your code reads the journey |
 | [Rendering](demo/rendering.html) | `render()` as an effect: draw only when something changed |
 | [Params & persistence](demo/persistence.html) | a typed store that survives reloads and travels in a link |
@@ -93,14 +88,6 @@ panel beside it and its source in `demo/<name>.js`.
 
 `src/reactive.js` is a standalone module — no imports, no DOM. Use it on its own in a sketch
 that doesn't want a panel, in a worker, or in node:
-
-```js
-import { signal, effect } from "guspira/reactive";
-```
-
-`effectRAF` and `tweened` need a clock: they use `requestAnimationFrame` where there is one
-and fall back to timers everywhere else, so the same code runs in a browser and under
-`node test/reactive.test.mjs`.
 
 ```js
 import { signal, computed, effect, effectRAF, batch, untrack, tweened } from "guspira/reactive";
@@ -116,25 +103,35 @@ const doubled = computed(() => count() * 2);
 const stop = effect(() => console.log(count()));   // runs now, and on every change
 stop();                                            // unsubscribe
 
-// coalesces into one run per frame — see Scheduling below for when to prefer your own queue
-const loop = effectRAF(() => rebuild(count()));
-loop.pause();   // records that it went dirty
-loop.resume();  // …and catches up once
-
-batch(() => {   // one effect run for the whole block, not one per write
-  count.set(1000);
-  radius.set(2);
-});
-
 // an effect that returns a function is handing back its teardown
 effect(() => {
   const id = setInterval(tick, 100);
   return () => clearInterval(id);   // before the next run, and on stop
 });
+
+batch(() => {   // one effect run for the whole block, not one per write
+  count.set(1000);
+  radius.set(2);
+});
 ```
 
 Signals compare before triggering, arrays element-wise — so a range slider handing back a
 fresh `[min, max]` on every pointer move only fires effects when the numbers actually change.
+
+**An effect created inside another belongs to it.** It is disposed when the parent re-runs and
+when the parent stops, on the same terms as a teardown function — so a branch that builds
+effects does not accumulate a new one on every pass:
+
+```js
+effect(() => {
+  if (mode() === "trail") {
+    effect(() => draw(position()));   // replaced each time the outer effect re-runs
+  }
+});
+```
+
+`computed` is owned the same way. When you want one to outlive its creator, build it inside
+`untrack` — nothing created there has a parent, and it lives until you stop it yourself.
 
 **What a write costs.** A write collects its subscribers and drains them in one pass, so an
 effect reading both a signal and something derived from it runs once, not once per level, and
@@ -143,9 +140,9 @@ taking the rest of the pass — one broken control cannot stop every other contr
 same signal. An effect that writes a signal it also reads is caught and named instead of
 overflowing the stack.
 
-Deeper derivation chains (`a → b → c`, all read by one effect) still cost one run per level,
-because propagation is queued rather than topologically ordered. Put such an effect on a
-scheduler and the duplicates collapse into a single run.
+Deeper derivation chains (`a → b → c`, all read by one effect) cost one run per level, because
+propagation is queued rather than topologically ordered. Put such an effect on a scheduler and
+the duplicates collapse into a single run.
 
 **One effect per thing, not one effect over everything.** An effect re-tracks its whole
 dependency set on each run, so a single effect reading 250 parameters pays 250 subscription
@@ -230,8 +227,8 @@ and the [easing demo](demo/easing.html) puts both readings on screen at once.
 
 ## Scheduling, and render() as an effect
 
-An effect runs synchronously by default, which means five writes in a row rebuild your
-geometry five times. Deferring the re-run fixes that, and *when* it re-runs is a real choice:
+An effect runs synchronously by default, which means five writes in a row rebuild your geometry
+five times. Deferring the re-run fixes that, and *when* it re-runs is a real choice:
 
 ```js
 effect(fn)                            // synchronously, on every change
@@ -241,14 +238,13 @@ effect(fn, { scheduler: myQueue })    // when you say so
 ```
 
 `frame` and `microtask` are ready-made shared queues; `createScheduler()` gives you your own,
-and passing it a driver makes it flush itself. `effectRAF` is the convenient case, not the
-good one. It books its own animation frame, so in
-a sketch that already has a render loop there are two schedulers racing: your rebuild may land
-before or after the draw that needed it, depending on registration order. When you own a frame
-loop, own the flush point too:
+and passing it a driver makes it flush itself. `effectRAF` is the convenient case, not the good
+one. It books its own animation frame, so in a sketch that already has a render loop there are
+two schedulers racing: your rebuild may land before or after the draw that needed it, depending
+on registration order. When you own a frame loop, own the flush point too:
 
 ```js
-import { createScheduler, effect, frame, microtask } from "guspira/reactive";
+import { createScheduler, effect } from "guspira/reactive";
 
 const renderQueue = createScheduler();
 
@@ -304,7 +300,14 @@ gui.addSeparator();
 gui.addElement(myCustomWidget, { label: "Custom" });
 ```
 
-A slider's value can be dragged, nudged with the arrow keys, or typed — click the number.
+A slider's value can be dragged, nudged with the arrow keys, or typed — click the number, or
+press <kbd>Enter</kbd> with the slider focused.
+
+Everything the panel does is reachable without a mouse: the title and section headings are
+buttons that fold with <kbd>Enter</kbd>, the tab bar takes <kbd>←</kbd>/<kbd>→</kbd> and
+<kbd>Home</kbd>/<kbd>End</kbd> as a tablist should, and <kbd>Alt</kbd>+<kbd>R</kbd> rerolls the
+control you are on — a shortcut on the row rather than a tab stop per label, so tabbing to the
+twentieth slider still takes twenty stops and not forty.
 
 ### Options
 
@@ -318,9 +321,9 @@ Every control takes an optional trailing options object:
 | `title` | Tooltip on the label. |
 | `randomizable` | `false` to keep the control out of label-click and panel randomisation. |
 
-The two state options come in pairs, and both names accept both kinds of value — a boolean
-for a state that never changes, a predicate for one that does. The `When` spelling is the one
-to reach for with a predicate, because it says out loud that the rule keeps holding:
+The two state options come in pairs, and both names accept both kinds of value — a boolean for
+a state that never changes, a predicate for one that does. The `When` spelling is the one to
+reach for with a predicate, because it says out loud that the rule keeps holding:
 
 ```js
 gui.addSlider("ISO", params.iso, 50, 6400, 50, {
@@ -333,18 +336,8 @@ gui.addSlider("Build", params.build, 0, 9, 1, {
 ```
 
 A predicate re-evaluates whenever anything it reads changes, so the rule lives in one place
-instead of in every handler that might affect it. `addSection` takes the same pair, which
-hides or greys a whole group at once.
-
-```js
-gui.addSlider("Radius", params.radius, 0, 4, 0.01, {
-  onChange: () => rebuild(),
-  disabled: () => params.locked(),
-});
-```
-
-The older positional form — `addSlider(label, sig, min, max, step, onChange, disabled)` —
-still works, so existing sketches don't have to change.
+instead of in every handler that might affect it. `addSection` takes the same pair, which hides
+or greys a whole group at once.
 
 ### Structure
 
@@ -362,6 +355,13 @@ gui.addTab("Look");
 gui.addSection("Colour", { open: false }); // folded to start
 ```
 
+Sections fold when their title is clicked. With a `storageKey` on the GUI, which section is
+folded and which tab is open are remembered between reloads:
+
+```js
+const gui = new GUI("Sketch", document.querySelector("#gui"), { storageKey: "my-sketch" });
+```
+
 Building a panel is sequential, but adding a row later is not. `into()` targets a tab or
 section whenever you need it — for a button that appends to a section built long before:
 
@@ -370,13 +370,6 @@ const layers = gui.addSection("Layers");
 gui.addButton("Add layer", () => {
   gui.into(layers, () => gui.addSlider(`Layer ${n}`, opacity, 0, 1, 0.01));
 });
-```
-
-Sections fold when their title is clicked. With a `storageKey` on the GUI, which section is
-folded and which tab is open are remembered between reloads:
-
-```js
-const gui = new GUI("Sketch", document.querySelector("#gui"), { storageKey: "my-sketch" });
 ```
 
 ### Randomizing
@@ -418,8 +411,8 @@ c.destroy()  // removes the row and stops its effects
 subscribed to its signal, and neither is ever collected. `gui.destroy()` tears down the whole
 panel the same way.
 
-The same three pieces build controls the toolkit doesn't ship: `createRow` for the row,
-`bind` for effects it owns, `onDestroy` for anything else that must be undone.
+The same three pieces build controls the toolkit doesn't ship: `createRow` for the row, `bind`
+for effects it owns, `onDestroy` for anything else that must be undone.
 
 ```js
 GUI.prototype.addVector = function (label, value, opts = {}) {
@@ -446,8 +439,8 @@ input is about 160px — pushes the label out of the row instead of fitting the 
 ## Parameters and persistence
 
 `createParams` builds one signal per key from a defaults object. The defaults double as the
-schema: they fix the key set and the type of each value, so a stale save or a hand-edited
-link can't put a string where a number belongs.
+schema: they fix the key set and the type of each value, so a stale save or a hand-edited link
+can't put a string where a number belongs.
 
 ```js
 import { createParams } from "guspira/params";
@@ -475,6 +468,7 @@ parameters:
 | `params.$apply(values)` | write a batch of values, skipping unknown keys and wrong types |
 | `params.$reset()` | back to defaults — every key, `exclude`d ones included |
 | `params.$toQuery()` | query string of everything that differs from defaults |
+| `params.$ease(ms)` | retime every parameter that travels |
 | `params.$flush()` | force the pending storage write |
 | `params.$stop()` | stop persisting |
 
@@ -512,8 +506,8 @@ import { bindKey } from "guspira/keyboard";
 const unbind = bindKey("KeyC", () => toggleRecording());
 ```
 
-Bindings ignore key presses while a field has focus, and a bare letter doesn't fire when
-Ctrl or Cmd is held — so `KeyC` doesn't fight Ctrl+C.
+Bindings ignore key presses while a field has focus, and a bare letter doesn't fire when Ctrl
+or Cmd is held — so `KeyC` doesn't fight Ctrl+C.
 
 ## Theming
 
@@ -558,55 +552,43 @@ The slider is a standalone form-associated custom element — usable without the
 ```
 
 `value` is a number, or `[min, max]` in `dual` mode. It emits `input` while dragging and
-`change` on release, and supports arrows, Page keys and Home/End (Shift moves the lower
-handle of a dual slider).
+`change` on release, and supports arrows, Page keys and Home/End (Shift moves the lower handle
+of a dual slider).
 
 ## Tests
 
 ```sh
-npm test           # the core, the params/preset layer, example coverage, and every page
+npm test           # the core, params/presets, example coverage, dist freshness, every page
 ```
 
-The third checks that every public export, panel method and option actually appears in a
-demo — documentation drifts, a test doesn't. Anything genuinely not demonstrable is listed
-with its reason in `test/coverage.test.mjs` rather than quietly skipped.
+Six suites, none of which need a browser except the last, which skips itself when no Chrome is
+installed:
 
-The fourth loads every page in headless Chrome and fails if one threw. It skips itself when
-no Chrome is installed, so `npm test` still runs anywhere.
+- **the reactive core and the params/preset layer**, in node
+- **stress** — the core under load: 20 000 effects on one signal, a 2 000-deep chain, 100 000
+  writes in a batch, 50 000 create/stop cycles. It asserts on counts rather than on the clock
+  (every subscriber ran exactly once; nothing runs after `stop()`), so it does not go red on a
+  busy machine. The one timing check compares a size against twice that size, which is enough
+  to catch an accidentally quadratic drain without caring how fast the host is
+- **example coverage** — every public export, panel method, option and theme variable has to
+  appear in a demo. Documentation drifts; a test doesn't. Anything genuinely not demonstrable
+  is listed with its reason in `test/coverage.test.mjs` rather than quietly skipped.
+- **dist freshness** — `dist/` is committed, so this rebuilds it into a scratch directory and
+  fails if the result differs. Without it a commit without `npm run build` ships stale code
+  with a green suite.
+- **every page**, loaded in headless Chrome and failed if it threw. An effect runs the moment
+  it is created, so a `let` declared below the effect that reads it is still in its temporal
+  dead zone — that class of mistake reaches the browser and nothing else.
 
 The DOM half needs a browser: serve the project and open `/test/`, which builds panels and
 drives them with real events — drags, key presses, label clicks, folding, `destroy()` — then
-prints the results on the page. `/test/dist.html` runs the same kind of check against the
-files in `dist/`.
+prints the results on the page. `/test/dist.html` runs the same kind of check against the files
+in `dist/`.
 
-## Moving an existing sketch over
-
-The API is the one both projects already use. What changed:
-
-- **`addSelect(label, signal, options)`** — argument order is now consistent with every
-  other control. The inktober order `(label, options, signal)` is detected and still works.
-- **`addText` is display-only**, `addTextInput(label, signal)` is the field. Both projects
-  had two conflicting `addText` definitions; in polygon-shredder the second silently shadowed
-  the first, which is why the preset **Name** field there never did anything.
-- **`addColorPicker` is `addColor`**.
-- **The panel is visible by default.** Pass `{ visible: false }` to keep the old behaviour of
-  waiting for `gui.show()`.
-- **Section titles fold on click.** Pass `{ collapsible: false }` for a plain heading.
-- `add*` returns a controller instead of the GUI, so chained `gui.addX().addY()` calls need
-  splitting — neither project chained.
-- One way to do each thing: a controller has `setVisible(bool)` (no separate `show`/`hide`),
-  and the panel's fold state is the `gui.rowsExpanded` signal (no `expand`/`collapse`).
-- The CSS class for the header is `.gui-title` (was `.title`), so it can't collide with a
-  page's own styles.
-
-`signal`, `effect`, `computed`, `batch`, `effectRAF` and `tweened` behave as before;
-`effect` now returns a stop function, and `effectRAF` returns `{ stop, pause, resume }`.
-
-One fix worth knowing about if you compare values with an old build: both projects derived a
-step's decimals with `-log10(step)`, which is off by one for any step that isn't a power of
-ten. A `0.05` slider snapped onto a `0.1` grid and a `0.25` slider onto `0.3`. Guspira counts
-the decimals properly (`src/format.js`), so those sliders now reach the values they always
-advertised.
+`test/bench.mjs` is a benchmark rather than a test: it measures signal writes, effect
+re-tracking and batching, so a change to the hot path can be checked against a number.
+`npm run stress` runs the load suite with `--expose-gc`, which adds a heap-growth check that
+is skipped otherwise.
 
 ## Licence
 

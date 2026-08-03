@@ -12,7 +12,9 @@ import { gzipSync } from "node:zlib";
 import { join } from "node:path";
 
 const watch = process.argv.includes("--watch");
-const outdir = "dist";
+// Overridable so a test can build somewhere else and compare, without disturbing the
+// checked-in dist/.
+const outdir = process.env.GUSPIRA_OUT || "dist";
 
 const pkg = JSON.parse(await readFile("package.json", "utf8"));
 

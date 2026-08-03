@@ -55,9 +55,8 @@ pre {
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(60% 80% at 20% 0%, var(--hero-glow-a), transparent 60%),
-    radial-gradient(50% 70% at 90% 10%, var(--hero-glow-b), transparent 60%);
-  filter: blur(8px);
+    radial-gradient(60% 80% at 20% 0%, var(--hero-glow-a), var(--hero-glow-a-out) 60%),
+    radial-gradient(50% 70% at 90% 10%, var(--hero-glow-b), var(--hero-glow-b-out) 60%);
 }
 
 .eyebrow {

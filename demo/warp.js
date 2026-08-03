@@ -144,10 +144,33 @@ uniform vec2 uDrift;
 
 #define OCTAVES ${octaves}
 
-float hash(vec2 p) {
-  p = fract(p * vec2(123.34, 456.21));
-  p += dot(p, p + 45.32);
-  return fract(p.x * p.y);
+// The lattice is addressed by whole numbers, so it is hashed with integer arithmetic, which is
+// exact on every driver at every magnitude. The usual fract(p * 123.34) style of hash loses its
+// low bits as the coordinates grow, and the coordinates here grow twice over: each octave
+// multiplies them by the lacunarity, and the drift term grows with elapsed time. Past a few
+// thousand, runs of neighbouring cells collapse onto one value, which is what showed up as flat
+// grid-aligned blocks that got worse with the octave count.
+uint uhash(uvec2 q) {
+  uint n = q.x * 1597334673u ^ q.y * 3812015801u;
+  n ^= n >> 15;
+  n *= 2246822519u;
+  n ^= n >> 13;
+  n *= 3266489917u;
+  n ^= n >> 16;
+  return n;
+}
+
+// Lattice coordinates run negative, and the bias lifts them into unsigned range rather than
+// leaning on how a given driver wraps a negative int.
+float hash(vec2 lattice) {
+  return float(uhash(uvec2(ivec2(lattice) + 0x100000))) * (1.0 / 4294967296.0);
+}
+
+// Grain wants a different value per pixel on every frame, so the frame index is hashed in
+// alongside the pixel index — the lattice hash alone would hold still between frames.
+float grain(vec2 fragCoord, float t) {
+  uint frame = uint(int(t * 60.0));
+  return float(uhash(uvec2(fragCoord) + uvec2(frame * 9781u, frame * 6151u))) * (1.0 / 4294967296.0);
 }
 
 float noise(vec2 p) {
@@ -209,7 +232,7 @@ void main() {
   float lum = dot(col, vec3(0.299, 0.587, 0.114));
   col = mix(vec3(lum), col, uSat);
   col *= 1.0 - uVignette * smoothstep(0.35, 1.25, length(uv * uZoom));
-  col += (hash(gl_FragCoord.xy + fract(uTime)) - 0.5) * uGrain;
+  col += (grain(gl_FragCoord.xy, uTime) - 0.5) * uGrain;
 
   fragColor = vec4(max(col, 0.0), 1.0);
 }`;

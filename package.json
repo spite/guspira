@@ -36,10 +36,11 @@
   ],
   "scripts": {
     "start": "npx --yes serve .",
-    "test": "node test/reactive.test.mjs && node test/params.test.mjs && node test/coverage.test.mjs && node test/pages.test.mjs",
+    "test": "node test/reactive.test.mjs && node test/params.test.mjs && node test/stress.test.mjs && node test/coverage.test.mjs && node test/dist.test.mjs && node test/pages.test.mjs",
     "build": "node build.mjs",
     "watch": "node build.mjs --watch",
-    "prepublishOnly": "npm test && npm run build"
+    "prepublishOnly": "npm test && npm run build",
+    "stress": "node --expose-gc test/stress.test.mjs"
   },
   "keywords": [
     "gui",

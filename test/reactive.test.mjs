@@ -372,6 +372,67 @@ console.error = (...args) => swallowed.push(args);
   check("…and a bad easing falls back to linear", t3.easing(0.5) === 0.5);
 }
 
+// an effect created inside another belongs to it, or an effect that creates effects starts a
+// fresh one on every pass and never disposes the last
+{
+  const outer = signal(0);
+  const inner = signal(0);
+  let childRuns = 0;
+  const stop = effect(() => {
+    outer();
+    effect(() => { inner(); childRuns++; });
+  });
+  for (let i = 1; i <= 5; i++) outer.set(i);
+  childRuns = 0;
+  inner.set(99);
+  check("only the newest child is live after the parent re-runs", childRuns === 1, String(childRuns));
+
+  stop();
+  childRuns = 0;
+  inner.set(100);
+  check("children stop with the parent", childRuns === 0, String(childRuns));
+
+  // grandchildren, and the child's own teardown
+  const seq = [];
+  let deepRuns = 0;
+  const deep = signal(0);
+  const stopDeep = effect(() => {
+    effect(() => {
+      effect(() => { deep(); deepRuns++; });
+      return () => seq.push("child-cleanup");
+    });
+  });
+  stopDeep();
+  deepRuns = 0;
+  deep.set(1);
+  check("grandchildren stop too", deepRuns === 0, String(deepRuns));
+  check("a child's cleanup runs when the parent disposes it", seq.includes("child-cleanup"), seq.join(","));
+
+  // untrack is the way to opt out and keep an effect alive past its creator
+  let looseRuns = 0;
+  const loose = signal(0);
+  const stopLoose = effect(() => {
+    outer();
+    untrack(() => effect(() => { loose(); looseRuns++; }));
+  });
+  stopLoose();
+  looseRuns = 0;
+  loose.set(1);
+  check("untrack opts out of ownership", looseRuns === 1, String(looseRuns));
+
+  // a computed built inside an effect is owned on the same terms
+  let recomputes = 0;
+  const source = signal(1);
+  const stopHost = effect(() => {
+    const c = computed(() => { recomputes++; return source(); });
+    c();
+  });
+  stopHost();
+  recomputes = 0;
+  source.set(5);
+  check("a computed created inside an effect is owned by it", recomputes === 0, String(recomputes));
+}
+
 // the shipped easings all map 0..1 onto 0..1
 {
   const names = Object.keys(easings);

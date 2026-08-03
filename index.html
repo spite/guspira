@@ -86,7 +86,7 @@ count.set(800);      // the widget already moved</pre>
             <span class="tag">gui.js</span>
             <h3>Owns the panel</h3>
             <p>
-              Fifteen controls, tabs, folding sections, presets and persistence. Every
+              Sixteen controls, tabs, folding sections, presets and persistence. Every
               <code>add*</code> hands back a handle on the row it built.
             </p>
           </div>
@@ -202,7 +202,7 @@ effect(() => draw(params));</pre>
             <div class="ic">
               <svg viewBox="0 0 24 24"><path d="M3 8h18M3 16h18" /><circle cx="9" cy="8" r="2.5" /><circle cx="16" cy="16" r="2.5" /></svg>
             </div>
-            <h3>Fifteen controls</h3>
+            <h3>Sixteen controls</h3>
             <p>Sliders, dual ranges, selects, colours, text, numbers, monitors, buttons, file pickers.</p>
           </div>
           <div class="feat" style="--h: 200">
@@ -237,8 +237,8 @@ effect(() => draw(params));</pre>
             <div class="ic">
               <svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8" /></svg>
             </div>
-            <h3>Keyboard shortcuts</h3>
-            <p><code>bindKey</code> ignores presses while you are typing, and never steals Ctrl or Cmd.</p>
+            <h3>Reachable without a mouse</h3>
+            <p>Folding, tabs, rerolling and typing a value all take keys. <code>bindKey</code> adds your own.</p>
           </div>
           <div class="feat" style="--h: 320">
             <div class="ic">
@@ -423,7 +423,7 @@ gui.addSection("Manual", {
               <div class="ic"><svg viewBox="0 0 48 48"><path d="M6 30q10-18 20 0t16-6" /><circle cx="6" cy="30" r="3" /><circle cx="42" cy="24" r="3" /></svg></div>
               <span class="tag">Signals</span>
               <h3>Reactivity</h3>
-              <p>Computed values, batching, untracked reads and tweens — every run counted.</p>
+              <p>Computed values, batching and untracked reads — with every effect run counted.</p>
             </div>
           </a>
           <a class="card" href="./demo/easing.html" style="--h: 300">

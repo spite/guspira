@@ -16,20 +16,9 @@ function composeRangeValue(min, max, step) {
   return `${formatFloat(min, step)}–${formatFloat(max, step)}`;
 }
 
-// Accepts both the trailing-options form and the older positional one, so
-// addSlider(..., onChange, disabled) and addSlider(..., { onChange, disabled }) both work.
-function readOptions(a, b) {
-  if (typeof a === "function") return { onChange: a, disabled: b };
-  if (a && typeof a === "object") return a;
-  return {};
-}
-
-// Buttons never had an onChange — their trailing positional argument was always `disabled`,
-// so they need their own reading of it or an old call silently loses its disabled state.
-function readButtonOptions(a) {
-  if (typeof a === "function") return { disabled: a };
-  if (a && typeof a === "object") return a;
-  return {};
+// Every control ends with the same optional argument: an options object.
+function readOptions(opts) {
+  return opts && typeof opts === "object" ? opts : {};
 }
 
 // The two state options come as a pair: `disabled` / `disabledWhen` and `visible` /
@@ -49,6 +38,8 @@ function condition(...candidates) {
 // plain signal the target is the signal, so this is a no-op for everything that does not
 // travel. Read-only monitors are the exception — they display whatever they are given.
 const targetOf = (sig) => sig.target || sig;
+
+let sectionId = 0;
 
 const optionValue = (opt) => (Array.isArray(opt) ? opt[0] : opt);
 const optionLabel = (opt) => (Array.isArray(opt) ? opt[1] : opt);
@@ -164,7 +155,10 @@ class GUI {
     this.container.className = "gui";
     if (opts.className) this.container.classList.add(opts.className);
 
-    const titleEl = document.createElement("div");
+    // A button rather than a div: folding the panel is an action, and an action that only a
+    // mouse can reach is not one everybody has.
+    const titleEl = document.createElement("button");
+    titleEl.type = "button";
     titleEl.className = "gui-title";
     titleEl.textContent = title;
     this.titleEl = titleEl;
@@ -208,6 +202,7 @@ class GUI {
         const expanded = this.rowsExpanded();
         this.rows.classList.toggle("visible", expanded);
         this.container.classList.toggle("collapsed", !expanded);
+        titleEl.setAttribute("aria-expanded", String(expanded));
       }),
       effect(() => this._syncTabs(this._activeTab())),
     ];
@@ -245,8 +240,12 @@ class GUI {
   // active mid-build, wiping the name it is about to restore.
   _syncTabs(active = this._activeTab.peek()) {
     this._tabs.forEach((tab, i) => {
-      tab.panel.classList.toggle("active", i === active);
-      tab.button.classList.toggle("active", i === active);
+      const on = i === active;
+      tab.panel.classList.toggle("active", on);
+      tab.button.classList.toggle("active", on);
+      tab.button.setAttribute("aria-selected", String(on));
+      // Only the selected tab is a tab stop; the arrows move between them from there.
+      tab.button.tabIndex = on ? 0 : -1;
     });
   }
 
@@ -290,17 +289,35 @@ class GUI {
     if (!this._tabBar) {
       this._tabBar = document.createElement("div");
       this._tabBar.className = "gui-tabbar";
+      this._tabBar.setAttribute("role", "tablist");
+      // Roles without the keys that go with them are worse than no roles, so the bar takes
+      // the arrow keys a tablist is expected to answer.
+      this._tabBar.addEventListener("keydown", (e) => {
+        const last = this._tabs.length - 1;
+        const at = this._activeTab.peek();
+        let next = null;
+        if (e.key === "ArrowRight") next = at >= last ? 0 : at + 1;
+        else if (e.key === "ArrowLeft") next = at <= 0 ? last : at - 1;
+        else if (e.key === "Home") next = 0;
+        else if (e.key === "End") next = last;
+        if (next === null) return;
+        e.preventDefault();
+        this.selectTab(next);
+        this._tabs[next].button.focus();
+      });
       this.rows.append(this._tabBar);
     }
 
     const index = this._tabs.length;
     const panel = document.createElement("div");
     panel.className = "gui-tab-panel";
+    panel.setAttribute("role", "tabpanel");
     this.rows.append(panel);
 
     const button = document.createElement("button");
     button.className = "gui-tab-btn";
     button.type = "button";
+    button.setAttribute("role", "tab");
     button.textContent = name;
     this._tabBar.append(button);
 
@@ -341,9 +358,11 @@ class GUI {
     const section = document.createElement("div");
     section.className = "gui-section";
 
-    const title = document.createElement("div");
+    const title = document.createElement(collapsible ? "button" : "div");
+    if (collapsible) title.type = "button";
     title.className = "gui-section-title";
     title.textContent = name;
+    title.id = `gui-section-${++sectionId}`;
 
     const body = document.createElement("div");
     body.className = "gui-section-body";
@@ -372,7 +391,11 @@ class GUI {
         controller.toggle();
         this._writeUIState(stateKey, open.peek());
       });
-      controller.bind(() => section.classList.toggle("open", open()));
+      controller.bind(() => {
+        const isOpen = open();
+        section.classList.toggle("open", isOpen);
+        title.setAttribute("aria-expanded", String(isOpen));
+      });
     } else {
       section.classList.add("open");
     }
@@ -448,14 +471,30 @@ class GUI {
     controller.randomize = fn;
     if (!controller.labelEl) return;
     controller.labelEl.classList.add("gui-randomizable");
-    controller.labelEl.title = opts.title || "Click to randomize";
+    controller.labelEl.title = opts.title || "Click, or press Alt+R with the control focused, to randomize";
+
     const handler = () => {
       if (controller.row.classList.contains("disabled")) return;
       this._beforeRandomize();
       fn();
     };
+
+    // Alt+R while anything in the row has focus. A tab stop per label would double the cost
+    // of tabbing through a panel to reach the controls, which is the thing keyboard users
+    // are actually there to do — so the reroll is a shortcut on the row instead.
+    const keys = (e) => {
+      if (e.key !== "r" && e.key !== "R") return;
+      if (!e.altKey || e.ctrlKey || e.metaKey) return;
+      e.preventDefault();
+      handler();
+    };
+
     controller.labelEl.addEventListener("click", handler);
-    controller.onDestroy(() => controller.labelEl.removeEventListener("click", handler));
+    controller.row.addEventListener("keydown", keys);
+    controller.onDestroy(() => {
+      controller.labelEl.removeEventListener("click", handler);
+      controller.row.removeEventListener("keydown", keys);
+    });
   }
 
   _beforeRandomize() {
@@ -484,7 +523,7 @@ class GUI {
   // --- controls ----------------------------------------------------------------------
 
   addButton(label, onClick, a) {
-    const opts = readButtonOptions(a);
+    const opts = readOptions(a);
     const controller = this.createRow(null, opts);
     const btn = document.createElement("button");
     btn.className = "gui-btn";
@@ -507,7 +546,7 @@ class GUI {
   // when a preset picker or an output setting sits above it. It is not the default: a button
   // added at the bottom of a panel would then reroll nothing at all, silently.
   addRandomizeButton(label = "Randomize", onDone = () => {}, a) {
-    const opts = readButtonOptions(a);
+    const opts = readOptions(a);
     let controller = null;
     const run = () => {
       this.randomizeAll(opts.scope === "following" ? controller : 0);
@@ -525,7 +564,7 @@ class GUI {
   // Several buttons sharing one row, so a pair like Export / Import costs one row instead
   // of two. `buttons` is a list of { label, onClick, title }.
   addButtons(label, buttons, a) {
-    const opts = readButtonOptions(a);
+    const opts = readOptions(a);
     const controller = this.createRow(label, opts);
 
     const group = document.createElement("div");
@@ -549,8 +588,8 @@ class GUI {
     return controller;
   }
 
-  addCheckbox(label, value, a, b) {
-    const opts = readOptions(a, b);
+  addCheckbox(label, value, a) {
+    const opts = readOptions(a);
     const sig = toSignal(value);
     const controller = this.createRow(label, opts);
 
@@ -575,17 +614,8 @@ class GUI {
   }
 
   // `options` is a list of values, or of [value, label] pairs when the two differ.
-  addSelect(label, value, options, a, b) {
-    // The older projects called this as (label, options, signal); detected rather than
-    // broken, since the two argument lists are unambiguous — an options list is never a
-    // function and a signal always is.
-    if (Array.isArray(value) && typeof options === "function") {
-      const swap = value;
-      value = options;
-      options = swap;
-    }
-
-    const opts = readOptions(a, b);
+  addSelect(label, value, options, a) {
+    const opts = readOptions(a);
     const sig = toSignal(value);
     const controller = this.createRow(label, opts);
 
@@ -637,8 +667,8 @@ class GUI {
     return controller;
   }
 
-  addSlider(label, value, min, max, step, a, b) {
-    const opts = readOptions(a, b);
+  addSlider(label, value, min, max, step, a) {
+    const opts = readOptions(a);
     const sig = toSignal(value);
     const controller = this.createRow(label, opts);
 
@@ -706,6 +736,12 @@ class GUI {
       };
     };
     valDisplay.addEventListener("click", startEditing);
+    // Enter or F2 with the slider focused opens the same editor the number opens on click.
+    input.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== "F2") return;
+      e.preventDefault();
+      startEditing();
+    });
 
     controller.bind(() => {
       const v = targetOf(sig)();
@@ -721,8 +757,8 @@ class GUI {
   }
 
   // Two handles over one range; the signal holds [min, max].
-  addRangeSlider(label, value, min, max, step, a, b) {
-    const opts = readOptions(a, b);
+  addRangeSlider(label, value, min, max, step, a) {
+    const opts = readOptions(a);
     const sig = toSignal(value);
     const controller = this.createRow(label, opts);
 
@@ -764,8 +800,8 @@ class GUI {
     return controller;
   }
 
-  addColor(label, value, a, b) {
-    const opts = readOptions(a, b);
+  addColor(label, value, a) {
+    const opts = readOptions(a);
     const sig = toSignal(value);
     const controller = this.createRow(label, opts);
 
@@ -789,8 +825,8 @@ class GUI {
     return controller;
   }
 
-  addTextInput(label, value, a, b) {
-    const opts = readOptions(a, b);
+  addTextInput(label, value, a) {
+    const opts = readOptions(a);
     const sig = toSignal(value);
     const controller = this.createRow(label, opts);
 
@@ -816,8 +852,8 @@ class GUI {
     return controller;
   }
 
-  addNumber(label, value, a, b) {
-    const opts = readOptions(a, b);
+  addNumber(label, value, a) {
+    const opts = readOptions(a);
     const sig = toSignal(value);
     const controller = this.createRow(label, opts);
 
@@ -845,12 +881,215 @@ class GUI {
     return controller;
   }
 
+  // A row of number inputs over one array signal — a position, a scale, an offset. How many
+  // axes there are comes from the value it is handed, so the same call makes a vec2, a vec3 or
+  // a vec4. `min`, `max` and `step` each take one number for every axis, or an array with an
+  // entry per axis when they differ.
+  //
+  //   gui.addVector("Position", signal([0, 1.5, -2]), { min: -10, max: 10, step: 0.1 });
+  addVector(label, value, a) {
+    const opts = readOptions(a);
+    const sig = toSignal(value);
+    const start = targetOf(sig).peek();
+    if (!Array.isArray(start)) {
+      throw new TypeError(
+        "[guspira] addVector needs a signal holding an array — signal([0, 0, 0]) for a vec3"
+      );
+    }
+
+    const axes = opts.axes || ["x", "y", "z", "w"].slice(0, start.length);
+    const per = (option, i) => (Array.isArray(option) ? option[i] : option);
+    const controller = this.createRow(label, opts);
+
+    const wrap = document.createElement("div");
+    wrap.className = "gui-control gui-vector";
+
+    // Written back as a new array rather than mutated in place: the array the sketch is
+    // holding must not change under it. Signals compare arrays element-wise, so rewriting
+    // one with the same numbers still costs its readers nothing.
+    const commit = (i, raw) => {
+      const step = per(opts.step, i);
+      const min = per(opts.min, i);
+      const max = per(opts.max, i);
+      const clamped =
+        step === undefined
+          ? Math.min(max ?? Infinity, Math.max(min ?? -Infinity, raw))
+          : snap(raw, step, min ?? -Infinity, max ?? Infinity);
+      const next = [...targetOf(sig).peek()];
+      next[i] = clamped;
+      sig.set(next);
+      opts.onChange && opts.onChange(next);
+    };
+
+    const inputs = axes.map((axis, i) => {
+      const input = document.createElement("input");
+      input.type = "number";
+      input.className = "gui-input-number gui-vector-axis";
+      input.title = axis;
+      // Three unlabelled boxes in a row are ambiguous to anything not looking at them.
+      input.setAttribute("aria-label", label ? `${label} ${axis}` : axis);
+      const step = per(opts.step, i);
+      const min = per(opts.min, i);
+      const max = per(opts.max, i);
+      if (step !== undefined) input.step = step;
+      if (min !== undefined) input.min = min;
+      if (max !== undefined) input.max = max;
+      input.oninput = () => {
+        const v = parseFloat(input.value);
+        if (isFinite(v)) commit(i, v);
+      };
+      wrap.append(input);
+      return input;
+    });
+
+    controller.bind(() => {
+      const v = targetOf(sig)();
+      inputs.forEach((input, i) => {
+        // Never while it is being typed into, or the caret jumps to the end mid-number.
+        if (document.activeElement === input) return;
+        const step = per(opts.step, i);
+        input.value = step === undefined ? v[i] : formatFloat(v[i], step);
+      });
+    });
+
+    // Without a stated range there is nothing to roll within, so the reroll uses the same
+    // -1..1 a normalised vector lives in. Give min/max and it uses those instead.
+    this._randomizable(
+      controller,
+      () => {
+        const next = axes.map((_, i) => {
+          const min = per(opts.min, i) ?? -1;
+          const max = per(opts.max, i) ?? 1;
+          return snap(randomInRange(min, max), per(opts.step, i) ?? 0.01, min, max);
+        });
+        sig.set(next);
+        opts.onChange && opts.onChange(next);
+      },
+      opts
+    );
+
+    controller.row.append(wrap);
+    controller.el = wrap;
+    controller.inputs = inputs;
+    controller.signal = sig;
+    return controller;
+  }
+
+  // A draggable 2D value over one `[x, y]` signal. Both axes default to 0..1; `min`, `max`
+  // and `step` take one number for both axes or `[x, y]` when they differ.
+  //
+  // The pad reads top-left downwards, the way screen coordinates do. `invertY: true` flips it
+  // so that up is larger, the way most graphics maths has it.
+  addPad(label, value, a) {
+    const opts = readOptions(a);
+    const sig = toSignal(value);
+    const start = targetOf(sig).peek();
+    if (!Array.isArray(start)) {
+      throw new TypeError("[guspira] addPad needs a signal holding an [x, y] array");
+    }
+
+    const controller = this.createRow(label, opts);
+    const per = (option, i, fallback) => {
+      const v = Array.isArray(option) ? option[i] : option;
+      return v === undefined ? fallback : v;
+    };
+    const minX = per(opts.min, 0, 0);
+    const maxX = per(opts.max, 0, 1);
+    const minY = per(opts.min, 1, 0);
+    const maxY = per(opts.max, 1, 1);
+    // A hundred stops across the pad, unless told otherwise: enough that dragging feels
+    // continuous, coarse enough that the value written is a number worth reading.
+    const stepX = per(opts.step, 0, (maxX - minX) / 100);
+    const stepY = per(opts.step, 1, (maxY - minY) / 100);
+    const invertY = !!opts.invertY;
+
+    const pad = document.createElement("div");
+    pad.className = "gui-control gui-pad";
+    pad.tabIndex = 0;
+    pad.setAttribute("role", "application");
+    pad.setAttribute("aria-label", `${label || "Pad"} — arrow keys to move, shift for bigger steps`);
+    if (opts.height !== undefined) {
+      pad.style.setProperty(
+        "--gui-pad-height",
+        typeof opts.height === "number" ? `${opts.height}px` : opts.height
+      );
+    }
+
+    const dot = document.createElement("div");
+    dot.className = "gui-pad-dot";
+    pad.append(dot);
+
+    const clamp01 = (v) => Math.min(1, Math.max(0, v));
+    const fraction = (v, min, max) => (max === min ? 0 : (v - min) / (max - min));
+
+    const commit = (x, y) => {
+      const next = [snap(x, stepX, minX, maxX), snap(y, stepY, minY, maxY)];
+      sig.set(next);
+      opts.onChange && opts.onChange(next);
+    };
+
+    const writeFromPointer = (e) => {
+      const box = pad.getBoundingClientRect();
+      const fx = clamp01((e.clientX - box.left) / box.width);
+      const fy = clamp01((e.clientY - box.top) / box.height);
+      commit(minX + fx * (maxX - minX), minY + (invertY ? 1 - fy : fy) * (maxY - minY));
+    };
+
+    const enabled = () => !controller.row.classList.contains("disabled");
+
+    pad.addEventListener("pointerdown", (e) => {
+      if (!enabled()) return;
+      // Captured, so a drag that leaves the pad keeps arriving here. That is also why there
+      // is nothing on window to unregister when the row is destroyed.
+      pad.setPointerCapture(e.pointerId);
+      pad.focus();
+      writeFromPointer(e);
+    });
+    pad.addEventListener("pointermove", (e) => {
+      if (pad.hasPointerCapture(e.pointerId)) writeFromPointer(e);
+    });
+    const release = (e) => {
+      if (pad.hasPointerCapture(e.pointerId)) pad.releasePointerCapture(e.pointerId);
+    };
+    pad.addEventListener("pointerup", release);
+    pad.addEventListener("pointercancel", release);
+
+    const ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+    pad.addEventListener("keydown", (e) => {
+      const move = ARROWS[e.key];
+      if (!move || !enabled()) return;
+      e.preventDefault();
+      const scale = e.shiftKey ? 10 : 1;
+      const [x, y] = targetOf(sig).peek();
+      commit(x + move[0] * stepX * scale, y + (invertY ? -move[1] : move[1]) * stepY * scale);
+    });
+
+    controller.bind(() => {
+      const [x, y] = targetOf(sig)();
+      const fx = clamp01(fraction(x, minX, maxX));
+      const fy = clamp01(fraction(y, minY, maxY));
+      dot.style.left = `${fx * 100}%`;
+      dot.style.top = `${(invertY ? 1 - fy : fy) * 100}%`;
+    });
+
+    this._randomizable(
+      controller,
+      () => commit(randomInRange(minX, maxX), randomInRange(minY, maxY)),
+      opts
+    );
+
+    controller.row.append(pad);
+    controller.el = pad;
+    controller.signal = sig;
+    return controller;
+  }
+
   // Read-only display of a signal (frame time, particle count, whatever the app computes).
   // Unlike the editable controls this reads the value rather than the target: a readout has
   // no hand to fight, and showing a value travelling is usually the reason for pointing one
   // at a tween.
-  addMonitor(label, value, a, b) {
-    const opts = readOptions(a, b);
+  addMonitor(label, value, a) {
+    const opts = readOptions(a);
     const sig = toSignal(value);
     const controller = this.createRow(label, opts);
 
@@ -868,7 +1107,7 @@ class GUI {
   // A file picker that hands the File to `onFile`. The input is reset after each pick so
   // choosing the same file twice still fires.
   addFileButton(label, onFile, a) {
-    const opts = readButtonOptions(a);
+    const opts = readOptions(a);
     const controller = this.addButton(label, () => input.click(), opts);
 
     const input = document.createElement("input");

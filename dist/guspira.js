@@ -11,6 +11,8 @@ var rafCancel = hasRAF ? (id) => cancelAnimationFrame(id) : (id) => clearTimeout
 var activeEffect = null;
 var batchDepth = 0;
 var pending = /* @__PURE__ */ new Set();
+var queue = [];
+var queueIndex = 0;
 var ReactiveEffect = class {
   constructor(fn, scheduler) {
     this.fn = fn;
@@ -20,6 +22,8 @@ var ReactiveEffect = class {
     this.paused = false;
     this.dirty = false;
     this.cleanupFn = null;
+    this.children = null;
+    if (activeEffect) (activeEffect.children ??= []).push(this);
   }
   // What a dependency change does to this effect: run it, or hand it to its scheduler to be
   // run later. A paused effect only remembers that it went stale.
@@ -47,6 +51,7 @@ var ReactiveEffect = class {
   }
   run() {
     if (!this.active) return;
+    this.stopChildren();
     this.runCleanup();
     this.cleanup();
     const prev = activeEffect;
@@ -69,8 +74,17 @@ var ReactiveEffect = class {
     this.deps.forEach((depSet) => depSet.delete(this));
     this.deps.clear();
   }
+  // Cleared before the list is walked: a child stopping itself in the process must not be
+  // walking the array we are still iterating.
+  stopChildren() {
+    if (!this.children) return;
+    const children = this.children;
+    this.children = null;
+    children.forEach((child) => child.stop());
+  }
   stop() {
     if (!this.active) return;
+    this.stopChildren();
     this.runCleanup();
     this.cleanup();
     this.active = false;
@@ -89,14 +103,14 @@ function drain() {
   batchDepth++;
   try {
     let guard = 0;
-    while (pending.size) {
+    while (queueIndex < queue.length) {
       if (++guard > 1e5) {
-        pending.clear();
+        reset();
         throw new Error(
           "[guspira] reactive update never settled — an effect is very likely writing a signal it also reads. Use peek() to read without subscribing, or untrack()."
         );
       }
-      const effect2 = pending.values().next().value;
+      const effect2 = queue[queueIndex++];
       pending.delete(effect2);
       try {
         effect2.notify();
@@ -104,15 +118,25 @@ function drain() {
         reportError(error);
       }
     }
+    reset();
   } finally {
     batchDepth--;
   }
+}
+function reset() {
+  pending.clear();
+  queue.length = 0;
+  queueIndex = 0;
 }
 function trigger(subscribers) {
   if (subscribers.size === 0) return;
   batchDepth++;
   try {
-    subscribers.forEach((effect2) => pending.add(effect2));
+    subscribers.forEach((effect2) => {
+      if (pending.has(effect2)) return;
+      pending.add(effect2);
+      queue.push(effect2);
+    });
   } finally {
     batchDepth--;
     if (batchDepth === 0) drain();
@@ -154,14 +178,14 @@ function computed(fn) {
   return computedSignal;
 }
 function createScheduler(driver = null) {
-  const queue = /* @__PURE__ */ new Set();
+  const queue2 = /* @__PURE__ */ new Set();
   let cancel = null;
   let paused = false;
   const flush = () => {
     cancel = null;
     if (paused) return 0;
-    const jobs = [...queue];
-    queue.clear();
+    const jobs = [...queue2];
+    queue2.clear();
     for (const job of jobs) {
       try {
         job.run();
@@ -172,18 +196,18 @@ function createScheduler(driver = null) {
     return jobs.length;
   };
   const schedule = (job) => {
-    queue.add(job);
+    queue2.add(job);
     if (driver && !cancel && !paused) cancel = driver(flush);
   };
   return {
     schedule,
     flush,
     get size() {
-      return queue.size;
+      return queue2.size;
     },
     // Drops pending work without running it.
     clear() {
-      queue.clear();
+      queue2.clear();
       if (cancel) cancel();
       cancel = null;
     },
@@ -197,7 +221,7 @@ function createScheduler(driver = null) {
     resume() {
       if (!paused) return;
       paused = false;
-      if (queue.size) flush();
+      if (queue2.size) flush();
     },
     get paused() {
       return paused;
@@ -756,15 +780,8 @@ var CHEVRON = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" vi
 function composeRangeValue(min, max, step) {
   return `${formatFloat(min, step)}–${formatFloat(max, step)}`;
 }
-function readOptions(a, b) {
-  if (typeof a === "function") return { onChange: a, disabled: b };
-  if (a && typeof a === "object") return a;
-  return {};
-}
-function readButtonOptions(a) {
-  if (typeof a === "function") return { disabled: a };
-  if (a && typeof a === "object") return a;
-  return {};
+function readOptions(opts) {
+  return opts && typeof opts === "object" ? opts : {};
 }
 function condition(...candidates) {
   for (const value of candidates) {
@@ -774,6 +791,7 @@ function condition(...candidates) {
   return null;
 }
 var targetOf = (sig) => sig.target || sig;
+var sectionId = 0;
 var optionValue = (opt) => Array.isArray(opt) ? opt[0] : opt;
 var optionLabel = (opt) => Array.isArray(opt) ? opt[1] : opt;
 var Controller = class {
@@ -866,7 +884,8 @@ var GUI = class {
     this.container = document.createElement("div");
     this.container.className = "gui";
     if (opts.className) this.container.classList.add(opts.className);
-    const titleEl = document.createElement("div");
+    const titleEl = document.createElement("button");
+    titleEl.type = "button";
     titleEl.className = "gui-title";
     titleEl.textContent = title;
     this.titleEl = titleEl;
@@ -897,6 +916,7 @@ var GUI = class {
         const expanded = this.rowsExpanded();
         this.rows.classList.toggle("visible", expanded);
         this.container.classList.toggle("collapsed", !expanded);
+        titleEl.setAttribute("aria-expanded", String(expanded));
       }),
       effect(() => this._syncTabs(this._activeTab()))
     ];
@@ -928,8 +948,11 @@ var GUI = class {
   // active mid-build, wiping the name it is about to restore.
   _syncTabs(active = this._activeTab.peek()) {
     this._tabs.forEach((tab, i) => {
-      tab.panel.classList.toggle("active", i === active);
-      tab.button.classList.toggle("active", i === active);
+      const on = i === active;
+      tab.panel.classList.toggle("active", on);
+      tab.button.classList.toggle("active", on);
+      tab.button.setAttribute("aria-selected", String(on));
+      tab.button.tabIndex = on ? 0 : -1;
     });
   }
   _forget(controller) {
@@ -969,15 +992,31 @@ var GUI = class {
     if (!this._tabBar) {
       this._tabBar = document.createElement("div");
       this._tabBar.className = "gui-tabbar";
+      this._tabBar.setAttribute("role", "tablist");
+      this._tabBar.addEventListener("keydown", (e) => {
+        const last = this._tabs.length - 1;
+        const at = this._activeTab.peek();
+        let next = null;
+        if (e.key === "ArrowRight") next = at >= last ? 0 : at + 1;
+        else if (e.key === "ArrowLeft") next = at <= 0 ? last : at - 1;
+        else if (e.key === "Home") next = 0;
+        else if (e.key === "End") next = last;
+        if (next === null) return;
+        e.preventDefault();
+        this.selectTab(next);
+        this._tabs[next].button.focus();
+      });
       this.rows.append(this._tabBar);
     }
     const index = this._tabs.length;
     const panel = document.createElement("div");
     panel.className = "gui-tab-panel";
+    panel.setAttribute("role", "tabpanel");
     this.rows.append(panel);
     const button = document.createElement("button");
     button.className = "gui-tab-btn";
     button.type = "button";
+    button.setAttribute("role", "tab");
     button.textContent = name;
     this._tabBar.append(button);
     const tab = new Tab(this, panel, panel, button, index);
@@ -1008,9 +1047,11 @@ var GUI = class {
     const disabled = condition(opts.disabledWhen, opts.disabled);
     const section = document.createElement("div");
     section.className = "gui-section";
-    const title = document.createElement("div");
+    const title = document.createElement(collapsible ? "button" : "div");
+    if (collapsible) title.type = "button";
     title.className = "gui-section-title";
     title.textContent = name;
+    title.id = `gui-section-${++sectionId}`;
     const body = document.createElement("div");
     body.className = "gui-section-body";
     section.append(title, body);
@@ -1030,7 +1071,11 @@ var GUI = class {
         controller.toggle();
         this._writeUIState(stateKey, open.peek());
       });
-      controller.bind(() => section.classList.toggle("open", open()));
+      controller.bind(() => {
+        const isOpen = open();
+        section.classList.toggle("open", isOpen);
+        title.setAttribute("aria-expanded", String(isOpen));
+      });
     } else {
       section.classList.add("open");
     }
@@ -1091,14 +1136,24 @@ var GUI = class {
     controller.randomize = fn;
     if (!controller.labelEl) return;
     controller.labelEl.classList.add("gui-randomizable");
-    controller.labelEl.title = opts.title || "Click to randomize";
+    controller.labelEl.title = opts.title || "Click, or press Alt+R with the control focused, to randomize";
     const handler = () => {
       if (controller.row.classList.contains("disabled")) return;
       this._beforeRandomize();
       fn();
     };
+    const keys = (e) => {
+      if (e.key !== "r" && e.key !== "R") return;
+      if (!e.altKey || e.ctrlKey || e.metaKey) return;
+      e.preventDefault();
+      handler();
+    };
     controller.labelEl.addEventListener("click", handler);
-    controller.onDestroy(() => controller.labelEl.removeEventListener("click", handler));
+    controller.row.addEventListener("keydown", keys);
+    controller.onDestroy(() => {
+      controller.labelEl.removeEventListener("click", handler);
+      controller.row.removeEventListener("keydown", keys);
+    });
   }
   _beforeRandomize() {
     if (this.options.onBeforeRandomize) this.options.onBeforeRandomize();
@@ -1121,7 +1176,7 @@ var GUI = class {
   }
   // --- controls ----------------------------------------------------------------------
   addButton(label, onClick, a) {
-    const opts = readButtonOptions(a);
+    const opts = readOptions(a);
     const controller = this.createRow(null, opts);
     const btn = document.createElement("button");
     btn.className = "gui-btn";
@@ -1144,7 +1199,7 @@ var GUI = class {
   // added at the bottom of a panel would then reroll nothing at all, silently.
   addRandomizeButton(label = "Randomize", onDone = () => {
   }, a) {
-    const opts = readButtonOptions(a);
+    const opts = readOptions(a);
     let controller = null;
     const run = () => {
       this.randomizeAll(opts.scope === "following" ? controller : 0);
@@ -1161,7 +1216,7 @@ var GUI = class {
   // Several buttons sharing one row, so a pair like Export / Import costs one row instead
   // of two. `buttons` is a list of { label, onClick, title }.
   addButtons(label, buttons, a) {
-    const opts = readButtonOptions(a);
+    const opts = readOptions(a);
     const controller = this.createRow(label, opts);
     const group = document.createElement("div");
     group.className = label ? "gui-control gui-btn-group" : "gui-btn-group";
@@ -1179,8 +1234,8 @@ var GUI = class {
     controller.el = group;
     return controller;
   }
-  addCheckbox(label, value, a, b) {
-    const opts = readOptions(a, b);
+  addCheckbox(label, value, a) {
+    const opts = readOptions(a);
     const sig = toSignal(value);
     const controller = this.createRow(label, opts);
     this._randomizable(controller, () => {
@@ -1201,13 +1256,8 @@ var GUI = class {
     return controller;
   }
   // `options` is a list of values, or of [value, label] pairs when the two differ.
-  addSelect(label, value, options, a, b) {
-    if (Array.isArray(value) && typeof options === "function") {
-      const swap = value;
-      value = options;
-      options = swap;
-    }
-    const opts = readOptions(a, b);
+  addSelect(label, value, options, a) {
+    const opts = readOptions(a);
     const sig = toSignal(value);
     const controller = this.createRow(label, opts);
     this._randomizable(controller, () => {
@@ -1246,8 +1296,8 @@ var GUI = class {
     controller.signal = sig;
     return controller;
   }
-  addSlider(label, value, min, max, step, a, b) {
-    const opts = readOptions(a, b);
+  addSlider(label, value, min, max, step, a) {
+    const opts = readOptions(a);
     const sig = toSignal(value);
     const controller = this.createRow(label, opts);
     this._randomizable(controller, () => {
@@ -1303,6 +1353,11 @@ var GUI = class {
       };
     };
     valDisplay.addEventListener("click", startEditing);
+    input.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== "F2") return;
+      e.preventDefault();
+      startEditing();
+    });
     controller.bind(() => {
       const v = targetOf(sig)();
       input.value = v;
@@ -1315,8 +1370,8 @@ var GUI = class {
     return controller;
   }
   // Two handles over one range; the signal holds [min, max].
-  addRangeSlider(label, value, min, max, step, a, b) {
-    const opts = readOptions(a, b);
+  addRangeSlider(label, value, min, max, step, a) {
+    const opts = readOptions(a);
     const sig = toSignal(value);
     const controller = this.createRow(label, opts);
     this._randomizable(controller, () => {
@@ -1351,8 +1406,8 @@ var GUI = class {
     controller.signal = sig;
     return controller;
   }
-  addColor(label, value, a, b) {
-    const opts = readOptions(a, b);
+  addColor(label, value, a) {
+    const opts = readOptions(a);
     const sig = toSignal(value);
     const controller = this.createRow(label, opts);
     this._randomizable(controller, () => {
@@ -1372,8 +1427,8 @@ var GUI = class {
     controller.signal = sig;
     return controller;
   }
-  addTextInput(label, value, a, b) {
-    const opts = readOptions(a, b);
+  addTextInput(label, value, a) {
+    const opts = readOptions(a);
     const sig = toSignal(value);
     const controller = this.createRow(label, opts);
     const input = document.createElement("input");
@@ -1393,8 +1448,8 @@ var GUI = class {
     controller.signal = sig;
     return controller;
   }
-  addNumber(label, value, a, b) {
-    const opts = readOptions(a, b);
+  addNumber(label, value, a) {
+    const opts = readOptions(a);
     const sig = toSignal(value);
     const controller = this.createRow(label, opts);
     const input = document.createElement("input");
@@ -1422,8 +1477,8 @@ var GUI = class {
   // Unlike the editable controls this reads the value rather than the target: a readout has
   // no hand to fight, and showing a value travelling is usually the reason for pointing one
   // at a tween.
-  addMonitor(label, value, a, b) {
-    const opts = readOptions(a, b);
+  addMonitor(label, value, a) {
+    const opts = readOptions(a);
     const sig = toSignal(value);
     const controller = this.createRow(label, opts);
     const out = document.createElement("span");
@@ -1438,7 +1493,7 @@ var GUI = class {
   // A file picker that hands the File to `onFile`. The input is reset after each pick so
   // choosing the same file twice still fires.
   addFileButton(label, onFile, a) {
-    const opts = readButtonOptions(a);
+    const opts = readOptions(a);
     const controller = this.addButton(label, () => input.click(), opts);
     const input = document.createElement("input");
     input.type = "file";
@@ -1706,7 +1761,7 @@ function createParams(defaults, options = {}) {
     });
     return applied;
   };
-  const reset = (subset = keys) => {
+  const reset2 = (subset = keys) => {
     batch(() => subset.forEach((key) => params[key].set(defaults[key])));
   };
   let timer = null;
@@ -1744,7 +1799,7 @@ function createParams(defaults, options = {}) {
     $persisted: persisted,
     $snapshot: snapshot,
     $apply: apply,
-    $reset: reset,
+    $reset: reset2,
     $flush: flush,
     $stop: stop,
     // Retimes every parameter that travels; 0 makes them arrive at once.

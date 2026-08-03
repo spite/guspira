@@ -18,6 +18,8 @@ const state = {
   colour: signal("#ffb347"),
   text: signal("guspira"),
   number: signal(1337),
+  position: signal([0, 1.5, -2]),
+  aim: signal([0.5, 0.5]),
 };
 
 // A signal the app writes and the panel only displays.
@@ -36,6 +38,8 @@ gui.addSelect("Select (numbers)", state.numbers, [1, 2, 3]);
 gui.addColor("Colour", state.colour);
 gui.addTextInput("Text", state.text, { placeholder: "type here" });
 gui.addNumber("Number", state.number, { min: 0, max: 9999, step: 1 });
+gui.addVector("Vector", state.position, { min: -10, max: 10, step: 0.1 });
+gui.addPad("Pad", state.aim, { height: 80 });
 
 gui.addSeparator();
 gui.addText("Read-only and actions.");
@@ -68,6 +72,8 @@ effect(() => {
     colour: state.colour(),
     text: state.text(),
     number: state.number(),
+    position: state.position(),
+    aim: state.aim(),
   });
 });
 
