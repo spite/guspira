@@ -10,6 +10,7 @@ import { join } from "node:path";
 const ALLOWED = {
   createRow: "shown via the custom controls in demo/extending.js, which call it through GUI.prototype",
   RangeSlider: "the class itself; demo/range-slider.js uses the element it registers",
+  StatsGraph: "the class itself; demo/stats.js uses the element through addGraph",
 };
 
 const read = (p) => readFileSync(p, "utf8");
@@ -48,6 +49,7 @@ const OPTIONS = [
   "accept", "collapsible", "open", "storageKey", "className", "expanded",
   "onBeforeRandomize", "migrate", "exclude", "url", "builtin", "lazy", "scheduler", "key",
   "axes", "invertY", "height", "scrub", "curve",
+  "stacked", "samples", "over", "below", "average", "interval",
 ];
 
 let failures = 0;
@@ -75,7 +77,7 @@ const check = (kind, names) => {
 
 // The theming demo is the documentation for the custom properties, so it has to keep up
 // with them: a variable added to the stylesheet and not exposed there is invisible.
-const cssVars = [...new Set([...guiCss.matchAll(/(--gui-[a-z-]+):/g)].map((m) => m[1]))];
+const cssVars = [...new Set([...guiCss.matchAll(/(--gui-[a-z0-9-]+):/g)].map((m) => m[1]))];
 const missingVars = cssVars.filter((v) => !theming.includes(v));
 console.log(
   `  ${missingVars.length ? "FAIL" : "ok  "} theme variables: ${
@@ -85,6 +87,19 @@ console.log(
 if (missingVars.length) {
   console.log(`       not exposed: ${missingVars.join(", ")}`);
   failures++;
+}
+
+// The theming page states the count in prose, and it was wrong the moment a variable was
+// added — which is exactly the drift the rest of this file exists to catch.
+{
+  const page = read(join(root, "demo/theming.html"));
+  const claimed = page.match(/all (\d+) of\s+them/);
+  const stated = claimed ? Number(claimed[1]) : null;
+  const right = stated === cssVars.length;
+  console.log(
+    `  ${right ? "ok  " : "FAIL"} the theming page's stated count: ${stated} (css/gui.css declares ${cssVars.length})`
+  );
+  if (!right) failures++;
 }
 
 check("GUI methods", [...new Set(methods)]);

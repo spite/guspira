@@ -71,6 +71,7 @@ beside it and its source in `demo/<name>.js`.
 | --- | --- |
 | [Warp field](demo/warp.html) | the whole toolkit in one sketch: a GPU noise field where every control is a uniform |
 | [Controls](demo/controls.html) | every control, each showing the signal it is bound to |
+| [Vectors & pads](demo/vector.html) | array signals: a row of axes, and an `[x, y]` you can drag |
 | [Options](demo/options.html) | `onChange`, `disabled`, `visibleWhen`, `title`, `randomizable` |
 | [Tabs & sections](demo/structure.html) | grouping, folding, conditional sections, remembered layout |
 | [Controllers](demo/controllers.html) | building and tearing down rows at runtime |
@@ -82,6 +83,7 @@ beside it and its source in `demo/<name>.js`.
 | [Presets](demo/presets.html) | built-in and saved looks, export and import |
 | [Randomize & keyboard](demo/randomize.html) | rerolls, key bindings, a seeded random source |
 | [Theming](demo/theming.html) | restyle the panel live through its CSS variables |
+| [Stats](demo/stats.html) | counters after rStats: timers, framerate, and where a frame went |
 | [`<range-slider>`](demo/range-slider.html) | the slider element alone, in a plain form |
 
 ## Reactivity
@@ -289,6 +291,7 @@ gui.addNumber("Seed", params.seed, { min: 0, step: 1 });
 gui.addVector("Position", params.position, { min: -10, max: 10, step: 0.1 });
 gui.addPad("Aim", params.aim, { invertY: true });             // signal holds [x, y]
 gui.addMonitor("FPS", fps, { format: (v) => v.toFixed(1) });  // read-only
+gui.addGraph("Frame", frame, { over: 16.7 });                 // plotted over time — see Stats
 gui.addButton("Export", () => save());
 gui.addButtons(null, [                                        // several on one row
   { label: "Export", onClick: save },
@@ -504,6 +507,83 @@ content's intrinsic width without it, so a widget holding anything naturally wid
 input is about 160px — pushes the label out of the row instead of fitting the column.
 
 [Extending demo →](demo/extending.html)
+
+## Stats
+
+Performance counters, after [rStats](https://github.com/spite/rstats), wired to signals. A
+counter *is* a signal, with the measuring methods hanging off it the way a tweened signal
+carries its `.target` — so anything that takes a signal takes a counter.
+
+```js
+import { createStats } from "guspira";
+
+const stats    = createStats();
+const fps      = stats.fps();
+const frame    = stats.timer("frame");
+const simulate = stats.timer("simulate");
+const draw     = stats.timer("draw");
+const drawn    = stats.counter("drawn");
+
+gui.addGraph("Frame", frame, { min: 0, over: 16.7 });
+gui.addGraph("Breakdown", [simulate, draw], { over: 16.7 });   // stacked
+gui.addMonitor("FPS", fps, { format: (v) => v.toFixed(0) });
+
+function loop() {
+  frame.start();
+  simulate.start(); step();   simulate.end();
+  draw.start();     render(); draw.end();
+  frame.end();
+  fps.tick();
+  stats.flush();        // one batched write for every counter
+  requestAnimationFrame(loop);
+}
+```
+
+`timer` measures the span between `start()` and `end()`; `tick()` is end-then-start, for the gap
+between successive calls. `fps()` counts frames inside a rolling window rather than inverting one
+frame, so a single long frame dents the figure instead of replacing it. `counter` is for things
+you count rather than time — draw calls, particles — with `add()`, `sample()` and `clear()`.
+
+`{ average: 250 }` reports the mean over a window. A raw per-frame millisecond figure is right
+for a graph, where the spikes are the information, and unreadable as text — so it is per counter.
+
+`flush()` publishes every counter in one `batch()`, so a frame of measuring costs one pass of
+effects however many counters there are. Nothing in `src/stats.js` touches the DOM: a sketch with
+no panel can still measure itself, and the arithmetic is checked in node against a fake clock.
+
+### `<stats-graph>`
+
+The graph is a standalone custom element, like `<range-slider>` — no panel and no signals needed:
+
+```html
+<stats-graph min="0" max="33" over="16"></stats-graph>
+<stats-graph stacked samples="48"></stats-graph>
+```
+
+```js
+graph.source = () => currentFrameTime();   // it samples on its own clock
+graph.push(12.4);                          // …or feed it by hand
+```
+
+A graph row runs the full width of the panel with its label and reading on a line above it,
+rather than sitting in the control column — a wider track is more history, and a label centred
+against a two-line legend has nothing to line up with.
+
+When a stacked graph is given several counters it labels its own bands: `stats.timer("render")`
+already knows its name, so no option is needed. Pass `{ series: ["Update", "Render"] }` for
+plain signals, and with no names available it renders no legend rather than a misleading one.
+Past the five `--gui-series-*` colours, further bands take generated hues, so two of them never
+share a swatch.
+
+`over` and `below` draw a dashed budget line and turn the reading beside it warm when crossed.
+Without a `max` it scales to whatever it has seen. Two things it does that matter:
+
+- **It samples on a clock, not on a change.** A value that holds still for a second is a second
+  of information, not an absence of it — which is the one place a signal's change-driven model
+  is the wrong tool, so the element owns a frame loop instead.
+- **It does nothing while it cannot be seen.** Off screen, folded into a closed section, or in a
+  collapsed panel all read as "not intersecting", and it stops sampling and drawing entirely.
+  The one job of a performance monitor is to not be the thing slowing you down.
 
 ## Parameters and persistence
 

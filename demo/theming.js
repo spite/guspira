@@ -64,6 +64,7 @@ const vars = {
   "--gui-track-height": signal(4),
   "--gui-max-height": signal(720),
   "--gui-check-size": signal(16),
+  "--gui-graph-height": signal(38),
   "--gui-pad-height": signal(90),
   "--gui-pad-dot-size": signal(10),
 };
@@ -94,6 +95,14 @@ const colours = {
   "--gui-thumb-hover": signal("#f0f0f0"),
   // The checkbox tick. Its default is var(--gui-bg), so it follows the panel unless set.
   "--gui-check": signal("#2c2c2c"),
+  // Past-budget on a stats graph: the threshold line and the reading beside it.
+  "--gui-warn": signal("#ff6b4a"),
+  // The bands of a stacked graph, in order. Past the fifth, colours are generated.
+  "--gui-series-1": signal("#4c7c0c"),
+  "--gui-series-2": signal("#fcb300"),
+  "--gui-series-3": signal("#c74900"),
+  "--gui-series-4": signal("#850700"),
+  "--gui-series-5": signal("#284280"),
 };
 
 const COLOUR_DEFAULTS = Object.fromEntries(
@@ -140,6 +149,7 @@ gui.addSlider("--gui-max-height", vars["--gui-max-height"], 200, 1200, 20, {
   title: "How tall the scrolling area may get",
 });
 gui.addSlider("--gui-check-size", vars["--gui-check-size"], 12, 28, 1);
+gui.addSlider("--gui-graph-height", vars["--gui-graph-height"], 20, 90, 2);
 gui.addSlider("--gui-pad-height", vars["--gui-pad-height"], 40, 180, 2);
 gui.addSlider("--gui-pad-dot-size", vars["--gui-pad-dot-size"], 4, 22, 1);
 

@@ -36,3 +36,5 @@ export {
   setRandomSource,
 } from "./random.js";
 export { default as RangeSlider } from "./range-slider.js";
+export { default as StatsGraph } from "./stats-graph.js";
+export { createStats } from "./stats.js";

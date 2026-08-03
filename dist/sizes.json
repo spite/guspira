@@ -23,33 +23,33 @@
     },
     {
       "file": "guspira.css",
-      "raw": 9742,
-      "gzip": 2485
+      "raw": 10309,
+      "gzip": 2614
     },
     {
       "file": "guspira.iife.js",
-      "raw": 83161,
-      "gzip": 21052
+      "raw": 102093,
+      "gzip": 26102
     },
     {
       "file": "guspira.iife.min.js",
-      "raw": 41007,
-      "gzip": 13982
+      "raw": 50198,
+      "gzip": 16860
     },
     {
       "file": "guspira.js",
-      "raw": 77317,
-      "gzip": 20419
+      "raw": 95304,
+      "gzip": 25402
     },
     {
       "file": "guspira.min.css",
-      "raw": 8233,
-      "gzip": 2367
+      "raw": 8707,
+      "gzip": 2501
     },
     {
       "file": "guspira.min.js",
-      "raw": 40494,
-      "gzip": 13751
+      "raw": 49683,
+      "gzip": 16635
     }
   ]
 }

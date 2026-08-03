@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Guspira — Stats</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="../css/gui.css" />
+    <link rel="stylesheet" href="../css/site.css" />
+    <style>
+      #canvas {
+        width: 100%;
+        height: 300px;
+        display: block;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #0d0d12;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="page-head">
+      <a class="back" href="./">← all demos</a>
+      <h1>Stats</h1>
+      <p>
+        Performance counters, after <a href="https://github.com/spite/rstats">rStats</a>, wired to
+        signals. <code>createStats</code> makes timers, framerate and counters that <em>are</em>
+        signals, so any control takes them; <code>addGraph</code> plots one over time, or several
+        stacked to show where a frame went.
+      </p>
+    </header>
+    <main class="demo">
+      <section class="stage">
+        <canvas id="canvas"></canvas>
+        <div>
+          <h2>The counters</h2>
+          <div class="readout" id="state"></div>
+        </div>
+        <div>
+          <h2>The loop</h2>
+          <div class="codecard"><div class="bar"><i></i><i></i><i></i><span>panel.js</span></div><pre class="code" id="code"></pre></div>
+        </div>
+        <div class="note">
+          <strong>Try:</strong> push <em>Extra work per frame</em> up until the frame graph crosses
+          its dashed line — the reading turns warm at the same moment. The <em>Breakdown</em> graph
+          shows the same milliseconds split between simulate and draw, so you can see which half
+          took them. Then <strong>fold the Budget section</strong>: the graphs stop drawing
+          entirely while they are out of sight, which is the whole point of a monitor.
+        </div>
+      </section>
+      <aside id="gui-container"></aside>
+    </main>
+    <script type="module" src="./stats.js"></script>
+    <footer>
+      <span><a href="../">Guspira</a> · <a href="./">all demos</a></span>
+      <span><a href="https://github.com/spite/guspira">GitHub</a> · MIT © Jaume Sanchez Elias</span>
+    </footer>
+    <script type="module" src="../theme.js"></script>
+  </body>
+</html>

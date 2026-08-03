@@ -6,6 +6,7 @@ import {
 } from "../src/reactive.js";
 import { precision, formatFloat, snap } from "../src/format.js";
 import { normalizeCurve, assertCurveRange, curveToValue, valueToCurve } from "../src/curve.js";
+import { createStats } from "../src/stats.js";
 
 let failures = 0;
 const check = (name, cond) => {
@@ -120,6 +121,93 @@ check("snap keeps a 0.05 grid", snap(0.15, 0.05, 0, 1) === 0.15, String(snap(0.1
 check("snap keeps a 0.25 grid", snap(0.75, 0.25, 0, 1) === 0.75, String(snap(0.75, 0.25, 0, 1)));
 check("snap clamps to the range", snap(9, 0.5, 0, 1) === 1);
 check("formatFloat pads to the step", formatFloat(1, 0.05) === "1.00", formatFloat(1, 0.05));
+
+// performance counters — measured against a clock we control, so the numbers are exact
+{
+  let time = 0;
+  const clock = () => time;
+  const stats = createStats({ clock });
+  const frame = stats.timer("frame");
+  const fps = stats.fps();
+  const drawn = stats.counter("drawn");
+
+  frame.start();
+  time += 16;
+  frame.end();
+  drawn.add(3);
+  drawn.add(2);
+  stats.flush();
+  check("a timer reports the span it bracketed", frame() === 16, String(frame()));
+  check("a counter accumulates within the frame", drawn() === 5, String(drawn()));
+
+  // The bug this guards: naming a counter method `set` overwrote the signal's own write
+  // method, so flush() measured instead of publishing and the value never moved.
+  drawn.clear();
+  drawn.sample(42);
+  stats.flush();
+  check("sample() records without shadowing signal.set", drawn() === 42, String(drawn()));
+  check("the signal's own set is intact", typeof drawn.set === "function" && drawn.set !== drawn.sample);
+
+  // fps counts frames inside a window rather than inverting one frame, so it publishes only
+  // once that window is up. On its own clock, because the counters above have already moved
+  // the shared one and the window would start part-spent.
+  {
+    let fpsTime = 0;
+    const fpsStats = createStats({ clock: () => fpsTime });
+    const rate = fpsStats.fps();
+    for (let i = 0; i < 62; i++) {
+      fpsTime += 16;
+      rate.tick();
+    }
+    fpsStats.flush();
+    check("fps says nothing until its window closes", rate() === 0, `${rate()} at ${fpsTime}ms`);
+    fpsTime += 16;
+    rate.tick();
+    fpsStats.flush();
+    check("fps counts the frames in the window", Math.abs(rate() - 62.5) < 0.6, String(rate()));
+  }
+
+  // tick() is end-then-start: the gap between calls
+  const gap = stats.timer("gap");
+  gap.tick();
+  time += 20;
+  gap.tick();
+  stats.flush();
+  check("tick measures the gap between calls", gap() === 20, String(gap()));
+
+  // an averaging window holds one figure until the window is up
+  const avgStats = createStats({ clock });
+  const smooth = avgStats.timer("smooth", { average: 100 });
+  const raw = avgStats.timer("raw");
+  const before = time;
+  for (const ms of [10, 20, 30, 40]) {
+    smooth.start();
+    raw.start();
+    time += ms;
+    smooth.end();
+    raw.end();
+    if (time - before < 100) avgStats.flush();
+  }
+  check("a raw timer follows every frame", raw() === 30, String(raw()));
+  avgStats.flush();
+  check("an averaged timer reports the mean of its window", Math.abs(smooth() - 25) < 1e-9, String(smooth()));
+
+  // flush is one batched write however many counters there are
+  let passes = 0;
+  const batched = createStats({ clock });
+  const one = batched.timer("one");
+  const two = batched.timer("two");
+  const three = batched.counter("three");
+  effect(() => { one(); two(); three(); passes++; });
+  passes = 0;
+  one.start(); time += 1; one.end();
+  two.start(); time += 2; two.end();
+  three.add(1);
+  batched.flush();
+  check("flush costs one pass of effects for every counter", passes === 1, String(passes));
+
+  check("counters() lists what was made", batched.counters().length === 3, String(batched.counters().length));
+}
 
 // slider curves — pure arithmetic, which is why they live outside the element
 {

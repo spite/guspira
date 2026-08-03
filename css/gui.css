@@ -32,6 +32,13 @@
   --gui-panel-radius: 6px;
   --gui-check-size: 16px;
   --gui-track-height: 4px;
+  --gui-graph-height: 38px;
+  --gui-warn: #ff6b4a;
+  --gui-series-1: #4c7c0c;
+  --gui-series-2: #fcb300;
+  --gui-series-3: #c74900;
+  --gui-series-4: #850700;
+  --gui-series-5: #284280;
   --gui-pad-height: 90px;
   --gui-pad-dot-size: 10px;
   --gui-max-height: calc(100vh - 80px);
@@ -262,6 +269,32 @@ body.gui-scrubbing,
 body.gui-scrubbing * {
   cursor: ew-resize !important;
   user-select: none !important;
+}
+/* A graph row turns the column layout on its side: label and reading on a line of their own,
+   then the graph across the full width beneath them. */
+.gui-row.gui-row-graph {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+}
+.gui-graph-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--gui-gap);
+}
+.gui-graph {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.gui-graph-val {
+  flex: 0 0 auto;
+  text-align: right;
+}
+/* Past its budget the reading says so — the graph draws its threshold line in the same colour. */
+.gui-monitor.gui-over {
+  color: var(--gui-warn);
+  opacity: 1;
 }
 /* A vector's axes share the control column and split it evenly. min-width: 0 is what lets a
    number input shrink below the width of its own content instead of pushing the label out. */

@@ -6,6 +6,7 @@ import GUI from "./src/gui.js";
 import { highlight } from "./demo/shell.js";
 import { signal, computed, effect } from "./src/reactive.js";
 import { createParams } from "./src/params.js";
+import { createStats } from "./src/stats.js";
 import { createPresetStore } from "./src/presets.js";
 
 // --- part one: signals -------------------------------------------------------------------
@@ -211,6 +212,18 @@ import { createPresetStore } from "./src/presets.js";
 
   entry('gui.addNumber("Seed", seed, { step: 1 });', (g) =>
     g.addNumber("Seed", signal(1337), { step: 1 })
+  );
+
+  // The graph on this page is measuring this page: a real frame timer, running while you read.
+  const pageStats = createStats();
+  const pageFrame = pageStats.timer("frame");
+  (function measure() {
+    pageFrame.tick();
+    pageStats.flush();
+    requestAnimationFrame(measure);
+  })();
+  entry('gui.addGraph("Frame", frame, { over: 16.7 });', (g) =>
+    g.addGraph("Frame", pageFrame, { min: 0, over: 16.7, format: (v) => `${v.toFixed(1)} ms` })
   );
 
   // A monitor is read-only, so this one is ticking on its own.

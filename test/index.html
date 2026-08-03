@@ -12,6 +12,7 @@
     <div id="results">running…</div>
     <script type="module">
       import GUI from "../src/gui.js";
+      import { createStats } from "../src/stats.js";
       import { createParams } from "../src/params.js";
       import { createPresetStore } from "../src/presets.js";
       import { signal } from "../src/reactive.js";
@@ -114,6 +115,81 @@
       const pairs = gui.addSelect("Pairs", params.label, [["x", "First"], ["y", "Second"]]);
       check("a pair list shows its labels", pairs.el.options[0].textContent === "First");
       check("…and carries its values", pairs.el.options[0].value === "x");
+
+      // --- stats graph ----------------------------------------------------------------
+      const graphEl = document.createElement("stats-graph");
+      graphEl.style.cssText = "width:200px;height:40px";
+      document.body.append(graphEl);
+      graphEl.samples = 5;
+      [1, 2, 3, 4, 5, 6, 7].forEach((v) => graphEl.push(v));
+      check("a graph keeps only `samples` of history", graphEl.history.length === 5);
+      check("…and keeps the newest of them", graphEl.history.join() === "3,4,5,6,7");
+      check("current is the latest sample", graphEl.current === 7);
+      graphEl.over = 5;
+      check("it knows when it is over budget", graphEl.breached === true);
+      graphEl.over = 99;
+      check("…and when it is not", graphEl.breached === false);
+      graphEl.below = 10;
+      check("a floor counts as breached too", graphEl.breached === true);
+      graphEl.below = undefined;
+      graphEl.draw();
+      const graphCanvas = graphEl.shadowRoot.querySelector("canvas");
+      const painted = graphCanvas
+        .getContext("2d")
+        .getImageData(0, 0, graphCanvas.width, graphCanvas.height)
+        .data.filter((_, i) => i % 4 === 3 && _ > 0).length;
+      check("it actually paints", painted > 20, `${painted} opaque pixels`);
+      check("a connected graph is running a loop", graphEl._frame !== null);
+      graphEl.remove();
+      check("removing it cancels the loop", graphEl._frame === null);
+
+      const stackEl = document.createElement("stats-graph");
+      stackEl.setAttribute("stacked", "");
+      stackEl.push([2, 3, 5]);
+      check("a stacked graph totals its series", stackEl.current === 10);
+
+      // legend: names come from the counters, so a stacked graph labels itself
+      const legendOf = (el) => [...el.shadowRoot.querySelectorAll(".legend span")];
+      const phaseStats = createStats();
+      const phases = ["move", "bounce", "clear", "paint"].map((n) => phaseStats.timer(n));
+      const phaseRow = gui.addGraph("Breakdown", phases, { over: 16, format: (v) => `${v.toFixed(1)}ms` });
+      check("a stacked graph gets a legend", legendOf(phaseRow.el).length === 4);
+      check(
+        "…named from the counters, with nothing passed",
+        legendOf(phaseRow.el).map((i) => i.textContent.replace(/[\d.ms ]+$/, "")).join() === "move,bounce,clear,paint"
+      );
+      check(
+        "…each band with its own swatch",
+        new Set(legendOf(phaseRow.el).map((i) => getComputedStyle(i.querySelector("i")).backgroundColor)).size === 4
+      );
+      const namedRow = gui.addGraph("Custom", [signal(1), signal(2)], { series: ["Alpha", "Beta"] });
+      check("`series` overrides the counter names",
+        legendOf(namedRow.el).map((i) => i.textContent.replace(/[\d.ms ]+$/, "")).join() === "Alpha,Beta");
+      check("plain signals with no names get no legend rather than a wrong one",
+        legendOf(gui.addGraph("Plain", [signal(1), signal(2)]).el).length === 0);
+      check("a single series never gets a legend", legendOf(gui.addGraph("Single", phases[0]).el).length === 0);
+      const spare = document.createElement("stats-graph");
+      check("colours never repeat past the named five",
+        new Set(Array.from({ length: 9 }, (_, i) => spare._colour(i))).size === 9);
+
+      const statsBag = createStats();
+      const statFrame = statsBag.timer("frame");
+      const statA = statsBag.timer("a");
+      const statB = statsBag.timer("b");
+      const graphRow = gui.addGraph("Frame", statFrame, { min: 0, over: 16.7 });
+      check("addGraph builds a stats-graph", graphRow.el.tagName.toLowerCase() === "stats-graph");
+      check("…and hands it the budget", graphRow.el.over === 16.7);
+      check("a single signal is a line, not columns", !graphRow.el.hasAttribute("stacked"));
+      const splitRow = gui.addGraph("Split", [statA, statB], { over: 16.7 });
+      check("several signals means stacked", splitRow.el.hasAttribute("stacked"));
+      check("…and it reads all of them", splitRow.el.source().length === 2);
+      statFrame.start();
+      statFrame.end();
+      statsBag.flush();
+      check("the source reads the counter", typeof graphRow.el.source() === "number");
+      const orphan = graphRow.el;
+      graphRow.destroy();
+      check("destroying the row stops the graph", orphan._frame === null);
 
       // --- slider curves --------------------------------------------------------------
       const curveDrag = (element, fraction) => {

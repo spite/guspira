@@ -7,6 +7,7 @@
 import { signal, effect, toSignal } from "./reactive.js";
 import { formatFloat, snap } from "./format.js";
 import "./range-slider.js";
+import "./stats-graph.js";
 import { normalizeCurve, assertCurveRange, curveToValue } from "./curve.js";
 import { random, randomInRange, randomElement, randomHexColor, randomBool } from "./random.js";
 import { bindKey } from "./keyboard.js";
@@ -1205,6 +1206,77 @@ class GUI {
     controller.row.append(pad);
     controller.el = pad;
     controller.signal = sig;
+    return controller;
+  }
+
+  // A signal plotted over time. Pass one signal for a line, or several for a stacked breakdown
+  // — a frame's total and where it went in one picture.
+  //
+  //   gui.addGraph("Frame", frame, { over: 16, format: (v) => `${v.toFixed(1)} ms` });
+  //   gui.addGraph("Breakdown", [update, render, post], { stacked: true, over: 16 });
+  //
+  // The row reads its signals with peek() on the element's own clock rather than through an
+  // effect. That is deliberate: a value which holds still for a second is a second of
+  // information, and an effect — which fires on change — would have nothing to say about it.
+  addGraph(label, value, a) {
+    const opts = readOptions(a);
+    const sources = (Array.isArray(value) ? value : [value]).map(toSignal);
+    const controller = this.createRow(label, opts);
+
+    // A graph runs the full width of the panel with its label above it, rather than sitting in
+    // the control column beside one. It wants the room — a wider track is more history — and a
+    // label vertically centred against a two-line legend has nothing to line up with.
+    controller.row.classList.add("gui-row-graph");
+    const head = document.createElement("div");
+    head.className = "gui-graph-head";
+    if (controller.labelEl) head.append(controller.labelEl);
+
+    const wrap = document.createElement("div");
+    wrap.className = "gui-control gui-graph";
+
+    const graph = document.createElement("stats-graph");
+    if (opts.stacked || sources.length > 1) graph.setAttribute("stacked", "");
+    if (opts.min !== undefined) graph.min = opts.min;
+    if (opts.max !== undefined) graph.max = opts.max;
+    if (opts.over !== undefined) graph.over = opts.over;
+    if (opts.below !== undefined) graph.below = opts.below;
+    if (opts.samples !== undefined) graph.samples = opts.samples;
+    graph.source =
+      sources.length > 1
+        ? () => sources.map((sig) => targetOf(sig).peek())
+        : () => targetOf(sources[0]).peek();
+
+    // Names for the bands, in order of precedence: what you passed, then the counters' own
+    // names — `stats.timer("render")` already knows what it is called, so graphing counters
+    // labels itself. A single band needs no legend; the row's label already says what it is.
+    if (graph.hasAttribute("stacked") && sources.length > 1) {
+      const names = opts.series || sources.map((sig) => sig.counterName).filter(Boolean);
+      if (names.length === sources.length) graph.series = names;
+    }
+
+    // The number beside the graph is the reading; the graph is the shape of it. Neither is much
+    // use without the other, so they come as one row.
+    const out = document.createElement("span");
+    out.className = "gui-monitor gui-graph-val";
+    const format = opts.format || ((v) => (Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(1)));
+    // So the legend's figures and the reading beside the graph are written the same way.
+    graph.formatValue = format;
+
+    // Updated on a timer rather than from the signals, so a readout and the graph beside it are
+    // never a frame apart, and a counter that stops changing still shows its current figure.
+    const readoutTick = setInterval(() => {
+      if (!graph.isConnected) return;
+      out.textContent = format(graph.current);
+      out.classList.toggle("gui-over", graph.breached);
+    }, opts.interval ?? 100);
+    controller.onDestroy(() => clearInterval(readoutTick));
+
+    head.append(out);
+    wrap.append(graph);
+    controller.row.append(head, wrap);
+    controller.el = graph;
+    controller.signal = sources[0];
+    controller.signals = sources;
     return controller;
   }
 

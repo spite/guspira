@@ -781,6 +781,316 @@ var RangeSlider = class extends HTMLElement {
 if (!customElements.get("range-slider")) customElements.define("range-slider", RangeSlider);
 var range_slider_default = RangeSlider;
 
+// src/stats-graph.js
+var PALETTE = [
+  "--gui-series-1, #4c7c0c",
+  "--gui-series-2, #fcb300",
+  "--gui-series-3, #c74900",
+  "--gui-series-4, #850700",
+  "--gui-series-5, #284280"
+];
+var GENERATED_HUE_STEP = 137.5;
+var StatsGraph = class extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._min = 0;
+    this._max = void 0;
+    this._over = void 0;
+    this._below = void 0;
+    this._samples = 96;
+    this._history = [];
+    this._source = null;
+    this._series = null;
+    this._legendAt = 0;
+    this._formatValue = (v) => Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(1);
+    this._visible = true;
+    this._dirty = false;
+    this._frame = null;
+    this._observers = [];
+  }
+  static get observedAttributes() {
+    return ["min", "max", "over", "below", "samples", "stacked"];
+  }
+  attributeChangedCallback(name, oldValue, newValue) {
+    if (oldValue === newValue) return;
+    if (name === "samples") this._samples = Math.max(2, parseInt(newValue, 10) || 96);
+    else if (name !== "stacked") this[`_${name}`] = newValue === null ? void 0 : parseFloat(newValue);
+    this.draw();
+  }
+  connectedCallback() {
+    if (!this.canvas) {
+      this.shadowRoot.innerHTML = `
+        <style>
+          :host { display: block; width: 100%; }
+          .plot {
+            height: var(--gui-graph-height, 38px);
+            background: var(--gui-field-bg, #3e3e3e);
+            border: 1px solid var(--gui-border, #555);
+            border-radius: var(--gui-radius, 4px);
+            overflow: hidden;
+          }
+          canvas { display: block; width: 100%; height: 100%; }
+          /* Wraps, because a panel row is narrow and four series will not sit on one line. */
+          .legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1px 9px;
+            margin-top: 3px;
+            font-size: 10px;
+            line-height: 1.5;
+            color: var(--gui-muted, #888);
+          }
+          .legend:empty { display: none; }
+          .legend span { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+          .legend i {
+            width: 7px;
+            height: 7px;
+            border-radius: 2px;
+            flex: 0 0 auto;
+          }
+          .legend b {
+            font-weight: 600;
+            color: var(--gui-fg, #e0e0e0);
+            font-variant-numeric: tabular-nums;
+          }
+        </style>
+        <div class="plot"><canvas></canvas></div>
+        <div class="legend"></div>`;
+      this.canvas = this.shadowRoot.querySelector("canvas");
+      this.legendEl = this.shadowRoot.querySelector(".legend");
+      this.ctx = this.canvas.getContext("2d");
+      this._buildLegend();
+    }
+    if (typeof IntersectionObserver === "function") {
+      const io = new IntersectionObserver(([entry]) => {
+        this._visible = entry.isIntersecting;
+      });
+      io.observe(this);
+      this._observers.push(io);
+    }
+    if (typeof ResizeObserver === "function") {
+      const ro = new ResizeObserver(() => {
+        this._dirty = true;
+      });
+      ro.observe(this);
+      this._observers.push(ro);
+    }
+    this._loop();
+  }
+  // Everything started above is stopped here — a graph left running after its row was removed
+  // is a frame loop drawing into a canvas nobody can see.
+  disconnectedCallback() {
+    if (this._frame !== null) cancelAnimationFrame(this._frame);
+    this._frame = null;
+    this._observers.forEach((observer) => observer.disconnect());
+    this._observers.length = 0;
+  }
+  _loop() {
+    const tick = () => {
+      if (this._visible) {
+        if (this._source) this.push(this._source());
+        else if (this._dirty) this.draw();
+        this._dirty = false;
+      }
+      this._frame = requestAnimationFrame(tick);
+    };
+    this._frame = requestAnimationFrame(tick);
+  }
+  // Names for the bands. Without them there is no legend at all, so a single-series graph keeps
+  // exactly the height it had before this existed.
+  set series(names) {
+    this._series = Array.isArray(names) && names.length ? names.slice() : null;
+    this._buildLegend();
+  }
+  get series() {
+    return this._series ? this._series.slice() : null;
+  }
+  // How the figures in the legend are written. The panel hands its own formatter down, so the
+  // legend and the reading beside the graph agree on units.
+  set formatValue(fn) {
+    if (typeof fn === "function") this._formatValue = fn;
+  }
+  get formatValue() {
+    return this._formatValue;
+  }
+  _buildLegend() {
+    if (!this.legendEl) return;
+    this.legendEl.textContent = "";
+    if (!this._series) return;
+    this._legendValues = this._series.map((name, index) => {
+      const item = document.createElement("span");
+      const swatch = document.createElement("i");
+      swatch.style.background = this._colour(index);
+      const value = document.createElement("b");
+      item.append(swatch, document.createTextNode(name), value);
+      this.legendEl.append(item);
+      return value;
+    });
+    this._legendAt = 0;
+  }
+  // The numbers are the point — "where did the frame go" is answered by 4.2 against 8.2, not by
+  // knowing which band is which. Throttled, because draw() runs every frame and rewriting text
+  // nodes sixty times a second to show a figure nobody can read that fast is pure waste.
+  _updateLegend(now2) {
+    if (!this._legendValues || now2 - this._legendAt < 100) return;
+    this._legendAt = now2;
+    const last = this._history[this._history.length - 1];
+    const parts = Array.isArray(last) ? last : [last];
+    this._legendValues.forEach((node, index) => {
+      const value = parts[index];
+      node.textContent = value === void 0 ? "" : ` ${this._formatValue(value)}`;
+    });
+  }
+  // One sample: a number, or an array of them when stacked.
+  push(value) {
+    this._history.push(value);
+    while (this._history.length > this._samples) this._history.shift();
+    if (this._visible) this.draw();
+    return this;
+  }
+  clear() {
+    this._history.length = 0;
+    this.draw();
+    return this;
+  }
+  get history() {
+    return this._history.slice();
+  }
+  // The number a readout would show: the most recent sample, summed if stacked.
+  get current() {
+    const last = this._history[this._history.length - 1];
+    if (last === void 0) return 0;
+    return Array.isArray(last) ? last.reduce((sum, v) => sum + v, 0) : last;
+  }
+  _colour(index) {
+    if (index >= PALETTE.length) {
+      return `hsl(${(index - PALETTE.length + 1) * GENERATED_HUE_STEP % 360} 62% 52%)`;
+    }
+    const [name, fallback] = PALETTE[index].split(", ");
+    return getComputedStyle(this).getPropertyValue(name).trim() || fallback;
+  }
+  draw() {
+    if (!this.ctx) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const width = this.canvas.clientWidth;
+    const height = this.canvas.clientHeight;
+    if (!width || !height) return;
+    if (this.canvas.width !== Math.round(width * dpr)) {
+      this.canvas.width = Math.round(width * dpr);
+      this.canvas.height = Math.round(height * dpr);
+    }
+    const ctx = this.ctx;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, width, height);
+    if (!this._history.length) return;
+    const total = (sample) => Array.isArray(sample) ? sample.reduce((sum, v) => sum + v, 0) : sample;
+    const min = this._min ?? 0;
+    const max = this._max ?? Math.max(...this._history.map(total), this._over ?? 0, min + 1);
+    const span = max - min || 1;
+    const y = (value) => height - (value - min) / span * height;
+    const columnWidth = width / this._samples;
+    const stacked = this.hasAttribute("stacked");
+    const style = getComputedStyle(this);
+    const warn = style.getPropertyValue("--gui-warn").trim() || "#c74900";
+    this._updateLegend(performance.now());
+    if (stacked) {
+      this._history.forEach((sample, index) => {
+        const parts = Array.isArray(sample) ? sample : [sample];
+        let base = min;
+        parts.forEach((part, series) => {
+          ctx.fillStyle = this._colour(series);
+          const top = y(base + part);
+          ctx.fillRect(index * columnWidth, top, Math.max(1, columnWidth - 0.5), y(base) - top);
+          base += part;
+        });
+      });
+    } else {
+      const fill = style.getPropertyValue("--gui-fill").trim() || "#e0e0e0";
+      ctx.beginPath();
+      ctx.moveTo(0, height);
+      this._history.forEach((sample, index) => ctx.lineTo(index * columnWidth, y(total(sample))));
+      ctx.lineTo((this._history.length - 1) * columnWidth, height);
+      ctx.closePath();
+      ctx.globalAlpha = 0.22;
+      ctx.fillStyle = fill;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.beginPath();
+      this._history.forEach((sample, index) => {
+        const point = [index * columnWidth, y(total(sample))];
+        index ? ctx.lineTo(...point) : ctx.moveTo(...point);
+      });
+      ctx.strokeStyle = this._breached(total(this._history[this._history.length - 1])) ? warn : fill;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+    for (const limit of [this._over, this._below]) {
+      if (limit === void 0 || limit === null || Number.isNaN(limit)) continue;
+      ctx.strokeStyle = warn;
+      ctx.globalAlpha = 0.6;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(0, y(limit));
+      ctx.lineTo(width, y(limit));
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+    }
+  }
+  // True when the latest sample is outside the budget set for it.
+  _breached(value) {
+    if (this._over !== void 0 && !Number.isNaN(this._over) && value > this._over) return true;
+    if (this._below !== void 0 && !Number.isNaN(this._below) && value < this._below) return true;
+    return false;
+  }
+  get breached() {
+    return this._breached(this.current);
+  }
+  set source(fn) {
+    this._source = typeof fn === "function" ? fn : null;
+  }
+  get source() {
+    return this._source;
+  }
+  set samples(count) {
+    this._samples = Math.max(2, count | 0);
+  }
+  get samples() {
+    return this._samples;
+  }
+  set min(value) {
+    this._min = parseFloat(value);
+    this.draw();
+  }
+  get min() {
+    return this._min;
+  }
+  set max(value) {
+    this._max = value === void 0 || value === null ? void 0 : parseFloat(value);
+    this.draw();
+  }
+  get max() {
+    return this._max;
+  }
+  set over(value) {
+    this._over = value === void 0 || value === null ? void 0 : parseFloat(value);
+    this.draw();
+  }
+  get over() {
+    return this._over;
+  }
+  set below(value) {
+    this._below = value === void 0 || value === null ? void 0 : parseFloat(value);
+    this.draw();
+  }
+  get below() {
+    return this._below;
+  }
+};
+if (!customElements.get("stats-graph")) customElements.define("stats-graph", StatsGraph);
+var stats_graph_default = StatsGraph;
+
 // src/random.js
 var source = Math.random;
 function setRandomSource(fn) {
@@ -1775,6 +2085,55 @@ var GUI = class {
     controller.signal = sig;
     return controller;
   }
+  // A signal plotted over time. Pass one signal for a line, or several for a stacked breakdown
+  // — a frame's total and where it went in one picture.
+  //
+  //   gui.addGraph("Frame", frame, { over: 16, format: (v) => `${v.toFixed(1)} ms` });
+  //   gui.addGraph("Breakdown", [update, render, post], { stacked: true, over: 16 });
+  //
+  // The row reads its signals with peek() on the element's own clock rather than through an
+  // effect. That is deliberate: a value which holds still for a second is a second of
+  // information, and an effect — which fires on change — would have nothing to say about it.
+  addGraph(label, value, a) {
+    const opts = readOptions(a);
+    const sources = (Array.isArray(value) ? value : [value]).map(toSignal);
+    const controller = this.createRow(label, opts);
+    controller.row.classList.add("gui-row-graph");
+    const head = document.createElement("div");
+    head.className = "gui-graph-head";
+    if (controller.labelEl) head.append(controller.labelEl);
+    const wrap = document.createElement("div");
+    wrap.className = "gui-control gui-graph";
+    const graph = document.createElement("stats-graph");
+    if (opts.stacked || sources.length > 1) graph.setAttribute("stacked", "");
+    if (opts.min !== void 0) graph.min = opts.min;
+    if (opts.max !== void 0) graph.max = opts.max;
+    if (opts.over !== void 0) graph.over = opts.over;
+    if (opts.below !== void 0) graph.below = opts.below;
+    if (opts.samples !== void 0) graph.samples = opts.samples;
+    graph.source = sources.length > 1 ? () => sources.map((sig) => targetOf(sig).peek()) : () => targetOf(sources[0]).peek();
+    if (graph.hasAttribute("stacked") && sources.length > 1) {
+      const names = opts.series || sources.map((sig) => sig.counterName).filter(Boolean);
+      if (names.length === sources.length) graph.series = names;
+    }
+    const out = document.createElement("span");
+    out.className = "gui-monitor gui-graph-val";
+    const format = opts.format || ((v) => Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(1));
+    graph.formatValue = format;
+    const readoutTick = setInterval(() => {
+      if (!graph.isConnected) return;
+      out.textContent = format(graph.current);
+      out.classList.toggle("gui-over", graph.breached);
+    }, opts.interval ?? 100);
+    controller.onDestroy(() => clearInterval(readoutTick));
+    head.append(out);
+    wrap.append(graph);
+    controller.row.append(head, wrap);
+    controller.el = graph;
+    controller.signal = sources[0];
+    controller.signals = sources;
+    return controller;
+  }
   // Read-only display of a signal (frame time, particle count, whatever the app computes).
   // Unlike the editable controls this reads the value rather than the target: a readout has
   // no hand to fight, and showing a value travelling is usually the reason for pointing one
@@ -2241,11 +2600,150 @@ async function copyText(text) {
     return ok;
   }
 }
+
+// src/stats.js
+var defaultClock = typeof performance !== "undefined" && performance.now ? () => performance.now() : () => Date.now();
+function createAverager(window2, clock) {
+  let sum = 0;
+  let count = 0;
+  let since = clock();
+  let published = 0;
+  return {
+    push(value) {
+      sum += value;
+      count += 1;
+    },
+    // Holds the last published figure until the window is up, so a readout is legible instead
+    // of flickering through every frame's value.
+    read(latest) {
+      if (!window2) return latest;
+      if (clock() - since >= window2) {
+        published = count ? sum / count : latest;
+        sum = 0;
+        count = 0;
+        since = clock();
+      }
+      return published;
+    }
+  };
+}
+function createStats({ clock = defaultClock } = {}) {
+  const counters = [];
+  function make(name, initial, { average = 0 } = {}) {
+    const sig = signal(initial);
+    const averager = createAverager(average, clock);
+    const counter = {
+      name,
+      signal: sig,
+      latest: initial,
+      averager,
+      // Left for flush() to write, so a frame's worth of measuring costs one signal write and
+      // one pass of effects rather than one per counter per call.
+      pending: initial
+    };
+    counters.push(counter);
+    return counter;
+  }
+  const RESERVED = ["set", "update", "peek", "target", "isSignal"];
+  function expose(sig, counter, methods) {
+    for (const name of Object.keys(methods)) {
+      if (RESERVED.includes(name)) {
+        throw new Error(`[guspira] a counter method may not be called "${name}" — it would shadow the signal's own`);
+      }
+    }
+    Object.assign(sig, methods, { counterName: counter.name, isCounter: true });
+    return sig;
+  }
+  return {
+    // Milliseconds between start() and end(). tick() is end-then-start, for measuring the gap
+    // between successive calls — a whole frame, say, without bracketing the entire loop.
+    timer(name, options) {
+      const counter = make(name, 0, options);
+      let startedAt = null;
+      return expose(counter.signal, counter, {
+        start() {
+          startedAt = clock();
+          return this;
+        },
+        end() {
+          if (startedAt !== null) {
+            counter.pending = clock() - startedAt;
+            counter.averager.push(counter.pending);
+            startedAt = null;
+          }
+          return this;
+        },
+        tick() {
+          this.end();
+          return this.start();
+        }
+      });
+    },
+    // Frames per second over a rolling window. Counting inside a window rather than inverting
+    // one frame's duration, because a single long frame should dent the figure, not replace it.
+    fps({ window: window2 = 1e3, ...options } = {}) {
+      const counter = make("fps", 0, options);
+      let frames = 0;
+      let since = clock();
+      return expose(counter.signal, counter, {
+        tick() {
+          frames += 1;
+          const elapsed = clock() - since;
+          if (elapsed >= window2) {
+            counter.pending = frames * 1e3 / elapsed;
+            counter.averager.push(counter.pending);
+            frames = 0;
+            since = clock();
+          }
+          return this;
+        }
+      });
+    },
+    // Anything you count rather than time: draw calls, particles, triangles. This is also the
+    // seam for numbers pulled off something else — a WebGL query, a renderer's own info object.
+    counter(name, options) {
+      const counter = make(name, 0, options);
+      return expose(counter.signal, counter, {
+        // `sample`, not `set`: see RESERVED above.
+        sample(value) {
+          counter.pending = value;
+          counter.averager.push(value);
+          return this;
+        },
+        add(amount = 1) {
+          counter.pending += amount;
+          counter.averager.push(counter.pending);
+          return this;
+        },
+        // Counters that accumulate within a frame have to be cleared at the top of the next.
+        clear() {
+          counter.pending = 0;
+          return this;
+        }
+      });
+    },
+    // Publishes every counter at once. One batch means one pass of effects per frame however
+    // many counters there are, which matters for the thing whose job is to stay cheap.
+    flush() {
+      batch(() => {
+        for (const counter of counters) {
+          counter.latest = counter.pending;
+          counter.signal.set(counter.averager.read(counter.pending));
+        }
+      });
+    },
+    // Every counter made here, for a panel that wants to list them without being told twice.
+    counters() {
+      return counters.map((counter) => counter.signal);
+    }
+  };
+}
 export {
   Controller,
   gui_default as GUI,
   range_slider_default as RangeSlider,
   Section,
+  stats_graph_default as StatsGraph,
   Tab,
   batch,
   bindKey,
@@ -2254,6 +2752,7 @@ export {
   createParams,
   createPresetStore,
   createScheduler,
+  createStats,
   easings,
   effect,
   effectRAF,
