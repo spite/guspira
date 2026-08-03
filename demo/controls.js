@@ -20,6 +20,8 @@ const state = {
   number: signal(1337),
   position: signal([0, 1.5, -2]),
   aim: signal([0.5, 0.5]),
+  blend: signal("add"),
+  notes: signal("Multi-line text.\nBound to a signal like everything else."),
 };
 
 // A signal the app writes and the panel only displays.
@@ -40,6 +42,8 @@ gui.addTextInput("Text", state.text, { placeholder: "type here" });
 gui.addNumber("Number", state.number, { min: 0, max: 9999, step: 1 });
 gui.addVector("Vector", state.position, { min: -10, max: 10, step: 0.1 });
 gui.addPad("Pad", state.aim, { height: 80 });
+gui.addSegmented("Segmented", state.blend, ["over", "add", "screen"]);
+gui.addTextArea("Text area", state.notes, { rows: 3, placeholder: "notes…", spellcheck: false });
 
 gui.addSeparator();
 gui.addText("Read-only and actions.");
@@ -74,6 +78,8 @@ effect(() => {
     number: state.number(),
     position: state.position(),
     aim: state.aim(),
+    blend: state.blend(),
+    notes: state.notes(),
   });
 });
 

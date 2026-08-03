@@ -116,6 +116,44 @@
       check("a pair list shows its labels", pairs.el.options[0].textContent === "First");
       check("…and carries its values", pairs.el.options[0].value === "x");
 
+      // --- segmented ------------------------------------------------------------------
+      const blend = signal("add");
+      const seg = gui.addSegmented("Blend", blend, ["over", "add", "screen"]);
+      const segButtons = [...seg.el.querySelectorAll(".gui-segment")];
+      check("a segment per option", segButtons.length === 3);
+      check("the bound one is active", segButtons[1].classList.contains("active"));
+      check("…and is the only tab stop", segButtons.filter((b) => b.tabIndex === 0).length === 1);
+      segButtons[2].click();
+      check("clicking a segment writes the signal", blend() === "screen");
+      blend.set("over");
+      check("a signal write moves the selection", segButtons[0].classList.contains("active"));
+      check("…and the others say so to a screen reader", segButtons[1].getAttribute("aria-checked") === "false");
+      seg.el.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+      check("an arrow key moves within the group", blend() === "add");
+      seg.el.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+      check("…and back again", blend() === "over");
+      seg.el.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+      check("…wrapping round the ends", blend() === "screen");
+      const pairSeg = gui.addSegmented("Pairs", signal("a"), [["a", "First"], ["b", "Second"]]);
+      check("pair lists show their labels", pairSeg.el.querySelector(".gui-segment").textContent === "First");
+      const segRolled = signal("over");
+      gui.addSegmented("Roll", segRolled, ["over", "add", "screen"]).randomize();
+      check("a segmented control rerolls to one of its options", ["over", "add", "screen"].includes(segRolled()));
+
+      // --- text area ------------------------------------------------------------------
+      const notes = signal("one\ntwo");
+      const area = gui.addTextArea("Notes", notes, { rows: 4, placeholder: "notes…" });
+      check("it is a textarea", area.el.tagName === "TEXTAREA");
+      check("…with the rows asked for", area.el.rows === 4);
+      check("…and the placeholder", area.el.placeholder === "notes…");
+      check("it shows the signal, newlines and all", area.el.value === "one\ntwo");
+      area.el.value = "edited\nhere";
+      area.el.dispatchEvent(new Event("input"));
+      check("typing writes the signal", notes() === "edited\nhere");
+      notes.set("from code");
+      check("a signal write reaches the box", area.el.value === "from code");
+      check("it takes the full width with its label above", area.row.classList.contains("gui-row-block"));
+
       // --- stats graph ----------------------------------------------------------------
       const graphEl = document.createElement("stats-graph");
       graphEl.style.cssText = "width:200px;height:40px";
@@ -147,6 +185,45 @@
       stackEl.setAttribute("stacked", "");
       stackEl.push([2, 3, 5]);
       check("a stacked graph totals its series", stackEl.current === 10);
+
+      // pausing: the source declines, so the history holds instead of scrolling
+      const heldGraph = document.createElement("stats-graph");
+      heldGraph.style.cssText = "display:block;width:200px;height:40px";
+      document.body.append(heldGraph);
+      heldGraph._visible = true;
+      heldGraph.samples = 50;
+      let feed = 5;
+      let declining = false;
+      heldGraph.source = () => (declining ? undefined : feed);
+      // drive the sample step directly rather than waiting on frames, which a headless run
+      // does not reliably deliver
+      const pump = () => {
+        const sample = heldGraph.source ? heldGraph.source() : undefined;
+        if (sample !== undefined) heldGraph.push(sample);
+      };
+      for (let i = 0; i < 6; i++) { feed = i; pump(); }
+      const running = heldGraph.history.length;
+      check("a source that returns a value is sampled", running === 6, String(running));
+      declining = true;
+      for (let i = 0; i < 6; i++) pump();
+      check("a source returning undefined adds nothing", heldGraph.history.length === running, String(heldGraph.history.length));
+      check("…and the history it had is untouched", heldGraph.history.join() === "0,1,2,3,4,5", heldGraph.history.join());
+      heldGraph.remove();
+
+      const pauseFlag = signal(false);
+      const pauseStats = createStats();
+      const pauseTimer = pauseStats.timer("frame");
+      const pausedRow = gui.addGraph("Held", pauseTimer, { pausedWhen: () => pauseFlag() });
+      check("a running graph samples", pausedRow.el.source() !== undefined);
+      pauseFlag.set(true);
+      check("pausedWhen makes the source decline", pausedRow.el.source() === undefined);
+      check("…and the row says it is heldGraph, not broken",
+        pausedRow.el.parentElement.classList.contains("gui-graph-paused"));
+      pauseFlag.set(false);
+      check("unpausing resumes sampling", pausedRow.el.source() !== undefined);
+      check("…and drops the heldGraph look", !pausedRow.el.parentElement.classList.contains("gui-graph-paused"));
+      const alwaysHeld = gui.addGraph("Always heldGraph", pauseTimer, { paused: true });
+      check("a constant `paused` works too", alwaysHeld.el.source() === undefined);
 
       // legend: names come from the counters, so a stacked graph labels itself
       const legendOf = (el) => [...el.shadowRoot.querySelectorAll(".legend span")];

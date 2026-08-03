@@ -37,19 +37,31 @@ const gui = new GUI("Stats", document.querySelector("#gui-container"), { width: 
 gui.addSection("Budget");
 // 16.7ms is one frame at 60Hz. The dashed line is drawn at `over`, so "are we over budget" is
 // a glance rather than a sum.
-gui.addGraph("Frame", frame, { min: 0, over: 16.7, format: (v) => `${v.toFixed(1)} ms` });
-gui.addGraph("FPS", fps, { min: 0, max: 70, below: 55, format: (v) => v.toFixed(0) });
+// Paused, the graphs hold: the spike you stopped to look at is the first thing a scrolling
+// flat line would erase.
+const heldWhilePaused = { pausedWhen: () => params.paused() };
+const frameGraph = gui.addGraph("Frame", frame, {
+  min: 0,
+  format: (v) => `${v.toFixed(1)} ms`,
+  ...heldWhilePaused,
+});
+// No ceiling: it scales to what it sees, rather than off the top of a scale assuming 60Hz.
+const fpsGraph = gui.addGraph("FPS", fps, { min: 0, format: (v) => v.toFixed(0), ...heldWhilePaused });
 
 gui.addSection("Where it goes");
 // Several signals means a stacked graph: the total and its breakdown in one picture.
-gui.addGraph("Breakdown", [move, bounce, clear, paint], {
-  over: 16.7,
+const breakdownGraph = gui.addGraph("Breakdown", [move, bounce, clear, paint], {
+  // Without this the legend takes the counters' own names. They are fine, but a label written
+  // for a person can read better than the identifier the code uses.
+  series: ["Move", "Bounce", "Clear", "Paint"],
   format: (v) => `${v.toFixed(1)} ms`,
+  ...heldWhilePaused,
 });
 // `stacked` on a single counter draws columns instead of a line — a coarser read, which suits
 // a shorter history. `samples` is how many are kept, `interval` how often the number beside it
 // is refreshed.
 gui.addGraph("Paint only", paint, {
+  ...heldWhilePaused,
   stacked: true,
   samples: 48,
   interval: 200,
@@ -58,6 +70,22 @@ gui.addGraph("Paint only", paint, {
 });
 gui.addMonitor("Particles drawn", drawn, { format: (v) => v.toFixed(0) });
 gui.addMonitor("Frame (250ms avg)", frameAvg, { format: (v) => `${v.toFixed(2)} ms` });
+
+
+// A frame's budget is one refresh, and not every screen refreshes sixty times a second — on a
+// 240Hz display the budget is 4.2ms and a graph topping out at 70fps is a solid block. So the
+// thresholds are set once, from the rate actually measured, rather than assumed here.
+const REFRESH_RATES = [30, 50, 60, 75, 90, 100, 120, 144, 165, 240, 360];
+let budgetKnown = false;
+effect(() => {
+  const rate = fps();
+  if (budgetKnown || rate < 20) return;
+  budgetKnown = true;
+  const hz = REFRESH_RATES.reduce((best, r) => (Math.abs(r - rate) < Math.abs(best - rate) ? r : best));
+  frameGraph.el.over = 1000 / hz;
+  breakdownGraph.el.over = 1000 / hz;
+  fpsGraph.el.below = hz * 0.9;
+});
 
 gui.addSection("Load");
 gui.addSlider("Particles", params.particles, 0, 20000, 100, { curve: 2 });

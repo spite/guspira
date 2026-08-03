@@ -285,8 +285,10 @@ gui.addSlider("Speed", params.speed, 0, 10, 0.1);
 gui.addRangeSlider("Size", params.sizeRange, 0.1, 3, 0.05);   // signal holds [min, max]
 gui.addCheckbox("Paused", params.paused);
 gui.addSelect("Palette", params.palette, ["warm", "cool"]);   // or [[value, label], …]
+gui.addSegmented("Blend", params.blend, ["over", "add", "screen"]);   // the same, as buttons
 gui.addColor("Tint", params.tint);
 gui.addTextInput("Name", params.name);
+gui.addTextArea("Notes", params.notes, { rows: 3 });
 gui.addNumber("Seed", params.seed, { min: 0, step: 1 });
 gui.addVector("Position", params.position, { min: -10, max: 10, step: 0.1 });
 gui.addPad("Aim", params.aim, { invertY: true });             // signal holds [x, y]
@@ -340,6 +342,13 @@ whole sweep stays within a hand's reach; without a range either, it counts in on
 that never travels is still a click, which focuses the field and selects it so the first
 keystroke replaces the value, and a field already being edited is left alone so selecting a
 digit with the mouse does what it looks like. `{ scrub: false }` turns it off.
+
+`addSegmented` is `addSelect` with the options on show — worth it for two to four choices,
+where a dropdown hides the alternatives behind a click. It is a radiogroup: one tab stop for
+the whole control, arrows to move within it.
+
+`addTextArea` takes the full width with its label above, the same as a graph, because a box
+three lines tall has nothing to line up with a label beside it.
 
 ### Values with more than one number
 
@@ -574,6 +583,20 @@ already knows its name, so no option is needed. Pass `{ series: ["Update", "Rend
 plain signals, and with no names available it renders no legend rather than a misleading one.
 Past the five `--gui-series-*` colours, further bands take generated hues, so two of them never
 share a swatch.
+
+**Pausing.** A graph pulls on its own clock, so a paused sketch does not stop it — the counters
+simply hold their last value and the graph scrolls that flat line across, erasing the spike you
+paused to look at. `pausedWhen` makes the source *decline* to sample instead, so the history
+holds, and the plot dims to say it is held rather than flat:
+
+```js
+gui.addGraph("Frame", frame, { pausedWhen: () => params.paused() });
+gui.addGraph("Frame", frame, { paused: true });   // a constant works, like `disabled`
+```
+
+Underneath, a `source` that returns `undefined` is declining to sample that frame — the
+pull-side equivalent of simply not calling `push()`. Anything supplying its own `source` gets
+the same control without needing the option at all.
 
 `over` and `below` draw a dashed budget line and turn the reading beside it warm when crossed.
 Without a `max` it scales to whatever it has seen. Two things it does that matter:

@@ -170,14 +170,17 @@
   opacity: 1;
   text-decoration-color: var(--gui-muted);
 }
-:where(.gui) :where(input, select, button) {
+:where(.gui) :where(input, select, button, textarea) {
+  box-sizing: border-box;
+  height: var(--gui-row-height);
   background: var(--gui-field-bg);
   border: 1px solid var(--gui-border);
   color: var(--gui-fg);
-  padding: 4px 6px;
+  padding: 0 6px;
   border-radius: var(--gui-radius);
   font-size: 12px;
   font-family: inherit;
+  line-height: 1;
   outline: none;
 }
 .gui input:focus,
@@ -245,6 +248,53 @@
   border: none;
   border-radius: 2px;
 }
+.gui-segmented {
+  display: flex;
+}
+.gui-segment {
+  flex: 1 1 0;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--gui-muted);
+  cursor: pointer;
+  border-radius: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background-color 90ms ease-in-out, color 90ms ease-in-out;
+}
+.gui-segment + .gui-segment {
+  margin-left: -1px;
+}
+.gui-segment:first-child {
+  border-radius: var(--gui-radius) 0 0 var(--gui-radius);
+}
+.gui-segment:last-child {
+  border-radius: 0 var(--gui-radius) var(--gui-radius) 0;
+}
+.gui-segment:hover {
+  color: var(--gui-fg);
+}
+.gui-segment.active {
+  background: var(--gui-btn-bg);
+  color: var(--gui-fg);
+  border-color: var(--gui-focus);
+  position: relative;
+  z-index: 1;
+}
+.gui-segment:focus-visible {
+  outline: 2px solid var(--gui-focus);
+  outline-offset: -2px;
+  z-index: 2;
+}
+.gui-textarea {
+  height: auto;
+  padding: 4px 6px;
+  width: 100%;
+  resize: vertical;
+  line-height: 1.45;
+  font-family: inherit;
+}
 .gui-scrubbable {
   cursor: ew-resize;
 }
@@ -256,12 +306,12 @@ body.gui-scrubbing * {
   cursor: ew-resize !important;
   user-select: none !important;
 }
-.gui-row.gui-row-graph {
+.gui-row.gui-row-block {
   flex-direction: column;
   align-items: stretch;
   gap: 3px;
 }
-.gui-graph-head {
+.gui-block-head {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
@@ -274,6 +324,9 @@ body.gui-scrubbing * {
 .gui-graph-val {
   flex: 0 0 auto;
   text-align: right;
+}
+.gui-graph.gui-graph-paused {
+  opacity: 0.45;
 }
 .gui-monitor.gui-over {
   color: var(--gui-warn);
@@ -319,7 +372,6 @@ body.gui-scrubbing * {
   width: 100%;
   cursor: pointer;
   background: var(--gui-btn-bg);
-  padding: 5px 6px;
 }
 .gui-btn:hover {
   background: var(--gui-btn-hover);
@@ -348,7 +400,7 @@ body.gui-scrubbing * {
 .gui-btn-mini {
   flex: 0 0 auto;
   width: auto;
-  padding: 4px 9px;
+  padding: 0 9px;
 }
 .gui-monitor {
   flex: 0 0 auto;

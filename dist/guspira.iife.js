@@ -949,7 +949,8 @@ var Guspira = (() => {
     _loop() {
       const tick = () => {
         if (this._visible) {
-          if (this._source) this.push(this._source());
+          const sample = this._source ? this._source() : void 0;
+          if (sample !== void 0) this.push(sample);
           else if (this._dirty) this.draw();
           this._dirty = false;
         }
@@ -1048,7 +1049,7 @@ var Guspira = (() => {
       const min = this._min ?? 0;
       const max = this._max ?? Math.max(...this._history.map(total), this._over ?? 0, min + 1);
       const span = max - min || 1;
-      const y = (value) => height - (value - min) / span * height;
+      const y = (value) => height - Math.max(0, Math.min(1, (value - min) / span)) * height;
       const columnWidth = width / this._samples;
       const stacked = this.hasAttribute("stacked");
       const style = getComputedStyle(this);
@@ -2145,6 +2146,96 @@ var Guspira = (() => {
       controller.signal = sig;
       return controller;
     }
+    // A bound choice as a row of joined buttons, for the two-to-four-option case where a
+    // <select> hides the alternatives behind a click. Same arguments as addSelect.
+    //
+    //   gui.addSegmented("Blend", params.blend, ["over", "add", "screen"]);
+    addSegmented(label, value, options, a) {
+      const opts = readOptions(a);
+      const sig = toSignal(value);
+      const controller = this.createRow(label, opts);
+      const group = document.createElement("div");
+      group.className = "gui-control gui-segmented";
+      group.setAttribute("role", "radiogroup");
+      if (label) group.setAttribute("aria-label", label);
+      const segments = options.map((option) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "gui-segment";
+        button.textContent = optionLabel(option);
+        button.title = String(optionLabel(option));
+        button.setAttribute("role", "radio");
+        button.onclick = () => {
+          sig.set(optionValue(option));
+          opts.onChange && opts.onChange(sig());
+        };
+        group.append(button);
+        return { button, value: optionValue(option) };
+      });
+      group.addEventListener("keydown", (e) => {
+        const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+        if (!step || controller.row.classList.contains("disabled")) return;
+        e.preventDefault();
+        const at = segments.findIndex((segment) => segment.value === targetOf(sig).peek());
+        const next = segments[(at + step + segments.length) % segments.length];
+        sig.set(next.value);
+        opts.onChange && opts.onChange(sig());
+        next.button.focus();
+      });
+      controller.bind(() => {
+        const current = targetOf(sig)();
+        segments.forEach(({ button, value: optionValue_ }) => {
+          const on = optionValue_ === current;
+          button.classList.toggle("active", on);
+          button.setAttribute("aria-checked", String(on));
+          button.tabIndex = on ? 0 : -1;
+        });
+        if (!segments.some(({ button }) => button.tabIndex === 0) && segments.length) {
+          segments[0].button.tabIndex = 0;
+        }
+      });
+      this._randomizable(
+        controller,
+        () => {
+          sig.set(optionValue(randomElement(options)));
+          opts.onChange && opts.onChange(sig());
+        },
+        opts
+      );
+      controller.row.append(group);
+      controller.el = group;
+      controller.options = options;
+      controller.signal = sig;
+      return controller;
+    }
+    // Multi-line text. Like a graph it takes the full width with its label above, because a box
+    // three lines tall has nothing to line up with a label beside it.
+    addTextArea(label, value, a) {
+      const opts = readOptions(a);
+      const sig = toSignal(value);
+      const controller = this.createRow(label, opts);
+      controller.row.classList.add("gui-row-block");
+      const head = document.createElement("div");
+      head.className = "gui-block-head";
+      if (controller.labelEl) head.append(controller.labelEl);
+      const area = document.createElement("textarea");
+      area.className = "gui-textarea";
+      area.rows = opts.rows ?? 3;
+      if (opts.placeholder) area.placeholder = opts.placeholder;
+      if (opts.spellcheck !== void 0) area.spellcheck = opts.spellcheck;
+      area.oninput = () => {
+        sig.set(area.value);
+        opts.onChange && opts.onChange(area.value);
+      };
+      controller.bind(() => {
+        const v = targetOf(sig)();
+        if (document.activeElement !== area) area.value = v ?? "";
+      });
+      controller.row.append(head, area);
+      controller.el = area;
+      controller.signal = sig;
+      return controller;
+    }
     // A signal plotted over time. Pass one signal for a line, or several for a stacked breakdown
     // — a frame's total and where it went in one picture.
     //
@@ -2158,9 +2249,9 @@ var Guspira = (() => {
       const opts = readOptions(a);
       const sources = (Array.isArray(value) ? value : [value]).map(toSignal);
       const controller = this.createRow(label, opts);
-      controller.row.classList.add("gui-row-graph");
+      controller.row.classList.add("gui-row-block");
       const head = document.createElement("div");
-      head.className = "gui-graph-head";
+      head.className = "gui-block-head";
       if (controller.labelEl) head.append(controller.labelEl);
       const wrap = document.createElement("div");
       wrap.className = "gui-control gui-graph";
@@ -2171,7 +2262,10 @@ var Guspira = (() => {
       if (opts.over !== void 0) graph.over = opts.over;
       if (opts.below !== void 0) graph.below = opts.below;
       if (opts.samples !== void 0) graph.samples = opts.samples;
-      graph.source = sources.length > 1 ? () => sources.map((sig) => targetOf(sig).peek()) : () => targetOf(sources[0]).peek();
+      const read = sources.length > 1 ? () => sources.map((sig) => targetOf(sig).peek()) : () => targetOf(sources[0]).peek();
+      const paused = condition(opts.pausedWhen, opts.paused);
+      graph.source = paused ? () => paused() ? void 0 : read() : read;
+      if (paused) controller.bind(() => wrap.classList.toggle("gui-graph-paused", !!paused()));
       if (graph.hasAttribute("stacked") && sources.length > 1) {
         const names = opts.series || sources.map((sig) => sig.counterName).filter(Boolean);
         if (names.length === sources.length) graph.series = names;

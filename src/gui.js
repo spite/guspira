@@ -1209,6 +1209,113 @@ class GUI {
     return controller;
   }
 
+  // A bound choice as a row of joined buttons, for the two-to-four-option case where a
+  // <select> hides the alternatives behind a click. Same arguments as addSelect.
+  //
+  //   gui.addSegmented("Blend", params.blend, ["over", "add", "screen"]);
+  addSegmented(label, value, options, a) {
+    const opts = readOptions(a);
+    const sig = toSignal(value);
+    const controller = this.createRow(label, opts);
+
+    const group = document.createElement("div");
+    group.className = "gui-control gui-segmented";
+    group.setAttribute("role", "radiogroup");
+    if (label) group.setAttribute("aria-label", label);
+
+    const segments = options.map((option) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "gui-segment";
+      button.textContent = optionLabel(option);
+      button.title = String(optionLabel(option));
+      button.setAttribute("role", "radio");
+      button.onclick = () => {
+        sig.set(optionValue(option));
+        opts.onChange && opts.onChange(sig());
+      };
+      group.append(button);
+      return { button, value: optionValue(option) };
+    });
+
+    // The radiogroup pattern, and the same one the tab bar uses: one tab stop for the whole
+    // group, arrows to move within it, so tabbing through a panel is not lengthened by every
+    // option of every choice.
+    group.addEventListener("keydown", (e) => {
+      const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+      if (!step || controller.row.classList.contains("disabled")) return;
+      e.preventDefault();
+      const at = segments.findIndex((segment) => segment.value === targetOf(sig).peek());
+      const next = segments[(at + step + segments.length) % segments.length];
+      sig.set(next.value);
+      opts.onChange && opts.onChange(sig());
+      next.button.focus();
+    });
+
+    controller.bind(() => {
+      const current = targetOf(sig)();
+      segments.forEach(({ button, value: optionValue_ }) => {
+        const on = optionValue_ === current;
+        button.classList.toggle("active", on);
+        button.setAttribute("aria-checked", String(on));
+        button.tabIndex = on ? 0 : -1;
+      });
+      // Nothing matches: the group would have no tab stop at all, so give it to the first.
+      if (!segments.some(({ button }) => button.tabIndex === 0) && segments.length) {
+        segments[0].button.tabIndex = 0;
+      }
+    });
+
+    this._randomizable(
+      controller,
+      () => {
+        sig.set(optionValue(randomElement(options)));
+        opts.onChange && opts.onChange(sig());
+      },
+      opts
+    );
+
+    controller.row.append(group);
+    controller.el = group;
+    controller.options = options;
+    controller.signal = sig;
+    return controller;
+  }
+
+  // Multi-line text. Like a graph it takes the full width with its label above, because a box
+  // three lines tall has nothing to line up with a label beside it.
+  addTextArea(label, value, a) {
+    const opts = readOptions(a);
+    const sig = toSignal(value);
+    const controller = this.createRow(label, opts);
+
+    controller.row.classList.add("gui-row-block");
+    const head = document.createElement("div");
+    head.className = "gui-block-head";
+    if (controller.labelEl) head.append(controller.labelEl);
+
+    const area = document.createElement("textarea");
+    area.className = "gui-textarea";
+    area.rows = opts.rows ?? 3;
+    if (opts.placeholder) area.placeholder = opts.placeholder;
+    if (opts.spellcheck !== undefined) area.spellcheck = opts.spellcheck;
+    area.oninput = () => {
+      sig.set(area.value);
+      opts.onChange && opts.onChange(area.value);
+    };
+
+    controller.bind(() => {
+      const v = targetOf(sig)();
+      // Never while it is being typed into, or the caret jumps to the end on every keystroke.
+      if (document.activeElement !== area) area.value = v ?? "";
+    });
+
+    controller.row.append(head, area);
+    controller.el = area;
+    controller.signal = sig;
+    return controller;
+  }
+
   // A signal plotted over time. Pass one signal for a line, or several for a stacked breakdown
   // — a frame's total and where it went in one picture.
   //
@@ -1226,9 +1333,9 @@ class GUI {
     // A graph runs the full width of the panel with its label above it, rather than sitting in
     // the control column beside one. It wants the room — a wider track is more history — and a
     // label vertically centred against a two-line legend has nothing to line up with.
-    controller.row.classList.add("gui-row-graph");
+    controller.row.classList.add("gui-row-block");
     const head = document.createElement("div");
-    head.className = "gui-graph-head";
+    head.className = "gui-block-head";
     if (controller.labelEl) head.append(controller.labelEl);
 
     const wrap = document.createElement("div");
@@ -1241,10 +1348,20 @@ class GUI {
     if (opts.over !== undefined) graph.over = opts.over;
     if (opts.below !== undefined) graph.below = opts.below;
     if (opts.samples !== undefined) graph.samples = opts.samples;
-    graph.source =
+    const read =
       sources.length > 1
         ? () => sources.map((sig) => targetOf(sig).peek())
         : () => targetOf(sources[0]).peek();
+
+    // Paused, the source declines rather than the row stopping: the graph keeps its history
+    // instead of scrolling a held value across it, which is the whole reason to pause — the
+    // spike you stopped to look at is the first thing a scrolling flat line would erase.
+    const paused = condition(opts.pausedWhen, opts.paused);
+    graph.source = paused ? () => (paused() ? undefined : read()) : read;
+
+    // A frozen graph and a graph whose value stopped moving look identical, and the second one
+    // looks broken. So it says which it is.
+    if (paused) controller.bind(() => wrap.classList.toggle("gui-graph-paused", !!paused()));
 
     // Names for the bands, in order of precedence: what you passed, then the counters' own
     // names — `stats.timer("render")` already knows what it is called, so graphing counters

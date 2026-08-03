@@ -55,10 +55,12 @@ await new Promise((r) => setTimeout(r, 400));
 
 let failures = 0;
 try {
-  for (const page of pages) {
-    // --dump-dom returns the DOM after scripts have run; a page that threw during module
-    // evaluation leaves its panel and readouts empty.
-    const out = spawnSync(
+  // Loading a page is a race against a fixed time budget, and the flagship demo has a shader
+  // to compile under software GL. A page that is genuinely broken fails every time; one that
+  // merely ran out of budget on a busy machine passes on the second go. Retried once, so the
+  // suite reports breakage rather than load.
+  const load = (page, budget) =>
+    spawnSync(
       CHROME,
       [
         "--headless=new",
@@ -66,13 +68,14 @@ try {
         // shader that stopped compiling should fail this suite, not render a blank page
         "--use-gl=swiftshader",
         "--no-sandbox",
-        "--virtual-time-budget=2500",
+        `--virtual-time-budget=${budget}`,
         "--dump-dom",
         `http://localhost:${PORT}${page}`,
       ],
       { encoding: "utf8", timeout: 30000 }
     ).stdout || "";
 
+  const verdict = (page, out) => {
     const isGallery = page.endsWith("/demo/index.html");
     const rows = (out.match(/gui-row/g) || []).length;
     const emptyReadout = /id="state"><\/div>/.test(out);
@@ -82,10 +85,49 @@ try {
     // demo/warp.js writes its shader-compile result into a monitor row
     const shaderBroken = /gui-monitor">shader error/.test(out) || /gui-monitor">no WebGL2/.test(out);
     const bad = (needsPanel && rows === 0) || emptyReadout || shaderBroken;
+    return { bad, rows, emptyReadout, shaderBroken };
+  };
+
+  for (const page of pages) {
+    // --dump-dom returns the DOM after scripts have run; a page that threw during module
+    // evaluation leaves its panel and readouts empty.
+    let result = verdict(page, load(page, 2500));
+    if (result.bad) result = verdict(page, load(page, 8000));
+
     console.log(
-      `  ${bad ? "FAIL" : "ok  "} ${page.padEnd(28)} ${rows} rows` +
-        (emptyReadout ? " · readout never filled" : "") +
-        (shaderBroken ? " · shader did not compile" : "")
+      `  ${result.bad ? "FAIL" : "ok  "} ${page.padEnd(28)} ${result.rows} rows` +
+        (result.emptyReadout ? " · readout never filled" : "") +
+        (result.shaderBroken ? " · shader did not compile" : "")
+    );
+    if (result.bad) failures++;
+  }
+  // The DOM suites are the only place drags, key presses and destroy() are exercised, and
+  // they run in a browser rather than here. Three times a duplicate `const` in test/index.html
+  // has thrown during module evaluation, taking every assertion in the file with it and
+  // leaving a page that reports nothing at all — which looks exactly like a page nobody ran.
+  // So the summary is read back: no summary is a failure, not a silence.
+  for (const suite of ["/test/index.html", "/test/dist.html"]) {
+    const out =
+      spawnSync(
+        CHROME,
+        [
+          "--headless=new",
+          "--use-gl=swiftshader",
+          "--no-sandbox",
+          "--virtual-time-budget=12000",
+          "--dump-dom",
+          `http://localhost:${PORT}${suite}`,
+        ],
+        { encoding: "utf8", timeout: 60000 }
+      ).stdout || "";
+
+    const text = out.replace(/<[^>]+>/g, "\n");
+    const passed = (text.match(/^\s*ok\s{2,}/gm) || []).length;
+    const summary = text.match(/^\s*(ALL PASS|\d+ FAILURES)\s*$/m);
+    const bad = !summary || summary[1] !== "ALL PASS" || passed === 0;
+    console.log(
+      `  ${bad ? "FAIL" : "ok  "} ${suite.padEnd(28)} ${passed} checks` +
+        (summary ? ` · ${summary[1]}` : " · no summary — the suite threw before it finished")
     );
     if (bad) failures++;
   }
@@ -93,5 +135,5 @@ try {
   server.kill();
 }
 
-console.log(failures ? `\n${failures} PAGES BROKEN` : "\nevery page runs without throwing");
+console.log(failures ? `\n${failures} PAGES BROKEN` : "\nevery page runs, and both browser suites pass");
 process.exit(failures ? 1 : 0);

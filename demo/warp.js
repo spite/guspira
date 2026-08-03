@@ -9,6 +9,7 @@
 
 import GUI from "../src/gui.js";
 import { createParams } from "../src/params.js";
+import { createStats } from "../src/stats.js";
 import { createPresetStore, copyText } from "../src/presets.js";
 import { signal, effect, frame, easings } from "../src/reactive.js";
 import { hexToRgb } from "../src/color.js";
@@ -119,7 +120,20 @@ effect(() => params.$ease(params.ease()));
 
 const canvas = document.querySelector("#gl");
 const gl = canvas.getContext("webgl2", { antialias: false, alpha: false });
-const fps = signal(0);
+// Measured with the toolkit's own counters rather than by hand. Each is a signal, so the
+// panel graphs them without anything in between.
+const stats = createStats();
+const fps = stats.fps();
+const frameTimer = stats.timer("frame");
+const uniformTimer = stats.timer("uniforms");
+const drawTimer = stats.timer("draw");
+const recompiles = stats.counter("recompiles");
+// GPU time, when the driver will tell us — the query is asynchronous, so what is read each
+// frame is a result from a few frames ago. Absent on most Chrome builds, and the row is left
+// off entirely rather than reporting a zero that looks like a measurement.
+const gpuExt = gl && gl.getExtension("EXT_disjoint_timer_query_webgl2");
+const gpuTimer = gpuExt ? stats.counter("gpu") : null;
+let gpuQuery = null;
 const note = signal("");
 
 const VERT = `#version 300 es
@@ -289,6 +303,7 @@ if (gl) {
       const octaves = Math.round(params.octaves());
       try {
         compile(octaves);
+        recompiles.add(1);
         note.set("");
       } catch (e) {
         note.set(`shader error: ${String(e.message).split("\n")[0]}`);
@@ -306,8 +321,6 @@ if (gl) {
   addEventListener("resize", resize);
 }
 
-let frames = 0;
-let clock = performance.now();
 let simTime = 0;
 let last = performance.now();
 
@@ -319,15 +332,12 @@ function render(now) {
   last = now;
   if (!params.paused.peek()) simTime += dt * params.speed.peek() * 4;
 
-  frames++;
-  if (now - clock > 500) {
-    fps.set((frames * 1000) / (now - clock));
-    frames = 0;
-    clock = now;
-  }
+  fps.tick();
+  frameTimer.start();
 
   resize();
   gl.useProgram(program);
+  uniformTimer.start();
 
   // Uniforms are cheap enough to push every frame, so they are read straight off the
   // signals with peek() — no subscription, no bookkeeping.
@@ -353,8 +363,35 @@ function render(now) {
   gl.uniform3fv(u.uA, hexToRgb(params.colourA()));
   gl.uniform3fv(u.uB, hexToRgb(params.colourB()));
   gl.uniform2f(u.uDrift, params.driftX(), params.driftY());
+  uniformTimer.end();
 
+  drawTimer.start();
+  // One query in flight at a time, and its result is collected below several frames later.
+  // endQuery has to be paired with a beginQuery from *this* frame — calling it while last
+  // frame's query is still pending ends a query that was never started, which is a GL error
+  // on every frame.
+  let queried = false;
+  if (gpuExt && !gpuQuery) {
+    gpuQuery = gl.createQuery();
+    gl.beginQuery(gpuExt.TIME_ELAPSED_EXT, gpuQuery);
+    queried = true;
+  }
   gl.drawArrays(gl.TRIANGLES, 0, 3);
+  if (queried) gl.endQuery(gpuExt.TIME_ELAPSED_EXT);
+  drawTimer.end();
+
+  if (gpuExt && gpuQuery) {
+    const ready = gl.getQueryParameter(gpuQuery, gl.QUERY_RESULT_AVAILABLE);
+    const disjoint = gl.getParameter(gpuExt.GPU_DISJOINT_EXT);
+    if (ready || disjoint) {
+      if (ready && !disjoint) gpuTimer.sample(gl.getQueryParameter(gpuQuery, gl.QUERY_RESULT) / 1e6);
+      gl.deleteQuery(gpuQuery);
+      gpuQuery = null;
+    }
+  }
+
+  frameTimer.end();
+  stats.flush(); // one batched write for every counter
 }
 
 // --- panel ---------------------------------------------------------------------------------
@@ -418,7 +455,42 @@ gui.addSlider("Ease (ms)", params.ease, 0, 2000, 25, {
 });
 gui.addRandomizeButton("Randomize (R)", () => presets.markCustom());
 gui.addSection("Stats", { open: false });
-gui.addMonitor("FPS", fps, { format: (v) => v.toFixed(0) });
+// Folded by default, and while it is folded the graphs stop sampling and drawing entirely —
+// which is the only honest way to ship a monitor inside the thing it measures.
+// Paused, the graphs hold what they have rather than scrolling a flat idle line over it.
+const heldWhilePaused = { pausedWhen: () => params.paused() };
+const frameGraph = gui.addGraph("Frame", frameTimer, {
+  min: 0,
+  format: (v) => `${v.toFixed(1)} ms`,
+  ...heldWhilePaused,
+});
+// No ceiling: the graph scales to what it sees, so a 240Hz machine is not drawing off the top
+// of a scale that assumed 60.
+const fpsGraph = gui.addGraph("FPS", fps, { min: 0, format: (v) => v.toFixed(0), ...heldWhilePaused });
+const breakdownGraph = gui.addGraph("Breakdown", [uniformTimer, drawTimer], {
+  format: (v) => `${v.toFixed(2)} ms`,
+  ...heldWhilePaused,
+});
+if (gpuTimer) {
+  gui.addGraph("GPU", gpuTimer, { min: 0, format: (v) => `${v.toFixed(2)} ms`, ...heldWhilePaused });
+}
+
+// A frame's budget is one refresh, and not every screen refreshes sixty times a second — on a
+// 240Hz display the budget is 4.2ms and a graph topping out at 70fps is a solid block. So the
+// thresholds are set once, from the rate actually measured, rather than assumed here.
+const REFRESH_RATES = [30, 50, 60, 75, 90, 100, 120, 144, 165, 240, 360];
+let budgetKnown = false;
+effect(() => {
+  const rate = fps();
+  if (budgetKnown || rate < 20) return;
+  budgetKnown = true;
+  const hz = REFRESH_RATES.reduce((best, r) => (Math.abs(r - rate) < Math.abs(best - rate) ? r : best));
+  frameGraph.el.over = 1000 / hz;
+  breakdownGraph.el.over = 1000 / hz;
+  fpsGraph.el.below = hz * 0.9;
+});
+
+gui.addMonitor("Shader builds", recompiles, { format: (v) => v.toFixed(0) });
 gui.addMonitor("Status", note, { format: (v) => v || "ok" });
 gui.addSection("Presets");
 gui.addPresets(presets, { builtin: false });

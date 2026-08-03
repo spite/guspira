@@ -49,7 +49,8 @@ const OPTIONS = [
   "accept", "collapsible", "open", "storageKey", "className", "expanded",
   "onBeforeRandomize", "migrate", "exclude", "url", "builtin", "lazy", "scheduler", "key",
   "axes", "invertY", "height", "scrub", "curve",
-  "stacked", "samples", "over", "below", "average", "interval",
+  "stacked", "samples", "over", "below", "average", "interval", "rows", "spellcheck",
+  "paused", "pausedWhen", "series",
 ];
 
 let failures = 0;
@@ -98,6 +99,22 @@ if (missingVars.length) {
   const right = stated === cssVars.length;
   console.log(
     `  ${right ? "ok  " : "FAIL"} the theming page's stated count: ${stated} (css/gui.css declares ${cssVars.length})`
+  );
+  if (!right) failures++;
+}
+
+// The landing page states the control count in prose. It has drifted five times.
+{
+  const WORDS = { 15: "Fifteen", 16: "Sixteen", 17: "Seventeen", 18: "Eighteen", 19: "Nineteen",
+    20: "Twenty", 21: "Twenty-one", 22: "Twenty-two", 23: "Twenty-three", 24: "Twenty-four" };
+  const landing = read(join(root, "index.html"));
+  const rowControls = [...new Set(methods)].filter(
+    (m) => m.startsWith("add") && !["addSection", "addTab", "addPresets"].includes(m)
+  ).length;
+  const word = WORDS[rowControls];
+  const right = word && landing.includes(`${word} controls`);
+  console.log(
+    `  ${right ? "ok  " : "FAIL"} the landing page's control count: ${rowControls} (${word ?? "?"} controls)`
   );
   if (!right) failures++;
 }

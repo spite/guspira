@@ -29,24 +29,19 @@
       };
       window.onerror = (m) => { lines.push("FAIL uncaught: " + m); failures++; };
 
-      const EXPECTED = [
-        "GUI", "Controller", "Section", "Tab",
-        "signal", "computed", "effect", "effectRAF", "createScheduler", "frame", "microtask",
-        "batch", "untrack", "tweened", "easings", "isSignal", "toSignal",
-        "precision", "formatFloat", "snap",
-        "createParams", "readStorage", "writeStorage", "mixColors", "hexToRgb",
-        "createPresetStore", "copyText",
-        "bindKey",
-        "random", "randomInRange", "randomElement", "randomBool", "randomHexColor", "setRandomSource",
-        "RangeSlider",
-      ];
+      // Derived from the ESM build rather than written out here. The real invariant is that
+      // the two builds expose the same API, and a list kept by hand only says what someone
+      // remembered to add — it went stale the moment createStats shipped.
+      const EXPECTED = Object.keys(esm).filter((k) => k !== "default");
+
 
       // --- the IIFE global ---------------------------------------------------------
       check("iife exposes a single global", typeof window.Guspira === "object");
       const missing = EXPECTED.filter((k) => !(k in window.Guspira));
-      check("iife global carries the whole API", missing.length === 0, missing.join(", "));
+      check("iife global carries everything the ESM build does", missing.length === 0, missing.join(", "));
       const extra = Object.keys(window.Guspira).filter((k) => !EXPECTED.includes(k) && k !== "default");
-      check("iife global carries nothing else", extra.length === 0, extra.join(", "));
+      check("…and nothing the ESM build does not", extra.length === 0, extra.join(", "));
+      check("the API is not accidentally empty", EXPECTED.length > 30, `${EXPECTED.length} names`);
 
       // --- the reactive-only build --------------------------------------------------
       check("reactive-only global exists", typeof window.GuspiraReactive === "object");

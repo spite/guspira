@@ -169,12 +169,16 @@ console.log("\nruntime scaling");
   // the queue apart one entry at a time, which meant a fresh Set iterator per effect walking
   // past everything already removed — quadratic, and it landed near 4x here. Linear measures
   // about 2x, so the ceiling sits between the two with room for a noisy host.
-  const timeFor = (count) => {
+  const once = (count) => {
     const s = signal(0);
     for (let i = 0; i < count; i++) effect(() => s());
     return ms(() => { for (let i = 1; i <= 50; i++) s.set(i); });
   };
-  timeFor(1000); // warm up
+  // The best of several runs rather than one. Noise on a busy machine only ever adds time, so
+  // the minimum is the closest thing to the cost of the work itself — a single run made this
+  // check flap between 1.9x and 3.2x on an otherwise idle laptop.
+  const timeFor = (count) => Math.min(once(count), once(count), once(count));
+  once(1000); // warm up
   const small = timeFor(5000);
   const large = timeFor(10000);
   const ratio = large / Math.max(small, 0.01);

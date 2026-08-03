@@ -141,9 +141,13 @@ class StatsGraph extends HTMLElement {
   _loop() {
     const tick = () => {
       if (this._visible) {
-        // A source samples every frame, which redraws anyway. Without one the graph is fed by
-        // hand, so the only reason to redraw here is a resize.
-        if (this._source) this.push(this._source());
+        // A source that returns undefined is declining to sample this frame — the pull-side
+        // equivalent of simply not calling push(). It is what freezing a graph is made of:
+        // the history holds instead of scrolling a held value across and losing it.
+        const sample = this._source ? this._source() : undefined;
+        if (sample !== undefined) this.push(sample);
+        // A source samples every frame, which redraws anyway. Without a sample the only
+        // reason to redraw is a resize.
         else if (this._dirty) this.draw();
         this._dirty = false;
       }
@@ -257,7 +261,11 @@ class StatsGraph extends HTMLElement {
     const max =
       this._max ?? Math.max(...this._history.map(total), this._over ?? 0, min + 1);
     const span = max - min || 1;
-    const y = (value) => height - ((value - min) / span) * height;
+    // Clamped to the box. A sample above the ceiling used to plot at a negative y, and since
+    // the line graph closes its path along the bottom edge, one such sample filled the whole
+    // plot with the fill colour — a solid block that looks like a broken graph rather than
+    // like a reading off the top of the scale.
+    const y = (value) => height - Math.max(0, Math.min(1, (value - min) / span)) * height;
     const columnWidth = width / this._samples;
     const stacked = this.hasAttribute("stacked");
 

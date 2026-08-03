@@ -52,6 +52,9 @@ gui.addSlider("Always off", signal(1), 0, 2, 0.1, {
 // `visible` is the same idea for presence: a constant where `visibleWhen` takes a rule. This
 // row is built and never shown, which is the point — it costs a line to keep, not a branch.
 gui.addSlider("Never shown", signal(1), 0, 2, 0.1, { visible: false });
+// `paused` is the same idea for a graph: a constant where `pausedWhen` takes a rule. This one
+// never samples, so it stays as empty as it started — dimmed, to say it is held and not broken.
+gui.addGraph("Held graph", exposure, { paused: true, min: 0, max: 4 });
 
 // `visibleWhen` removes the row entirely rather than dimming it.
 gui.addSection("Manual settings", { visibleWhen: () => mode() === "manual" });
