@@ -1,0 +1,101 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Guspira — narrow viewport check</title>
+    <style>
+      body { background: #111; color: #ddd; font: 12px monospace; padding: 20px; }
+      #results { white-space: pre; }
+      /* Each page is measured inside an iframe of exactly the width being tested. A headless
+         window cannot be made this narrow — Chrome clamps it and lays out wider, which quietly
+         turns a real overflow into a passing screenshot. An iframe has no such floor. */
+      iframe { width: 390px; height: 500px; border: 0; position: absolute; left: -10000px; }
+    </style>
+  </head>
+  <body>
+    <div id="results">running…</div>
+    <script type="module">
+      const WIDTHS = [390, 320];
+
+      const PAGES = [
+        "/index.html",
+        "/demo/index.html",
+        "/demo/controllers.html",
+        "/demo/controls.html",
+        "/demo/easing.html",
+        "/demo/extending.html",
+        "/demo/options.html",
+        "/demo/persistence.html",
+        "/demo/presets.html",
+        "/demo/randomize.html",
+        "/demo/range-slider.html",
+        "/demo/reactivity.html",
+        "/demo/rendering.html",
+        "/demo/stats.html",
+        "/demo/structure.html",
+        "/demo/theming.html",
+        "/demo/vector.html",
+        "/demo/warp.html",
+      ];
+
+      const lines = [];
+      let failures = 0;
+      const check = (name, cond, extra = "") => {
+        lines.push(`${cond ? "ok  " : "FAIL"} ${name}${extra ? " — " + extra : ""}`);
+        if (!cond) failures++;
+      };
+
+      const load = (src, width) =>
+        new Promise((done) => {
+          const frame = document.createElement("iframe");
+          frame.style.width = `${width}px`;
+          frame.src = src;
+          frame.onload = () => setTimeout(() => done(frame), 250);
+          document.body.append(frame);
+        });
+
+      for (const width of WIDTHS) {
+        for (const page of PAGES) {
+          const frame = await load(page, width);
+          const doc = frame.contentDocument;
+          const scrollWidth = doc.documentElement.scrollWidth;
+
+          // A page may hold something wider than itself — a code block, a table — as long as
+          // that thing scrolls inside its own box. What must not happen is the *page* growing,
+          // which is what makes a phone pan sideways over the whole layout.
+          const spilling = [...doc.querySelectorAll("*")].filter((el) => {
+            if (el.getBoundingClientRect().width <= width + 1) return false;
+            // The walk stops at <body>. Clipping *there* is what the page does to keep the
+            // full-bleed hero glow from making it pan, and it does not rescue anything — it
+            // loses it. Treating it as a scroller made this whole check vacuous: every element
+            // has body as an ancestor, so nothing was ever reported.
+            for (let parent = el.parentElement; parent && parent !== doc.body; parent = parent.parentElement) {
+              const overflow = getComputedStyle(parent).overflowX;
+              if (overflow === "auto" || overflow === "scroll") return false;
+              if (overflow === "hidden" || overflow === "clip") return false;
+            }
+            return true;
+          });
+
+          // The assertion is on unreachable content, not on scrollWidth. The page sets
+          // `overflow-x: clip` so that the full-bleed hero glow — deliberately 100vw — cannot
+          // make the page pan sideways, and that means scrollWidth can exceed the viewport
+          // while nothing is actually lost or scrollable. What matters to someone holding a
+          // phone is whether anything sits outside the screen with no way to reach it.
+          check(
+            `${page} at ${width}px`,
+            spilling.length === 0,
+            spilling.length
+              ? `${spilling.length} element(s) spill with nothing to scroll them, widest ` +
+                `${Math.round(Math.max(...spilling.map((el) => el.getBoundingClientRect().width)))}px`
+              : `scrollWidth ${scrollWidth}`
+          );
+          frame.remove();
+        }
+      }
+
+      document.getElementById("results").textContent =
+        lines.join("\n") + "\n\n" + (failures ? `${failures} FAILURES` : "ALL PASS");
+    </script>
+  </body>
+</html>

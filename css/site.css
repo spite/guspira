@@ -701,3 +701,50 @@ footer a {
 footer a:hover {
   color: var(--fg);
 }
+
+/* ---------- narrow screens ---------- */
+
+/* A grid item's default min-width is `auto`, which means "no narrower than my contents". A
+   code block's contents are unbreakable lines, so on a phone every grid holding one refused to
+   shrink and pushed the page out to 530px inside a 390px viewport. Grid and flex children get
+   a floor of zero instead, and the code scrolls inside its own card, which it was already set
+   up to do. */
+.pitch > *,
+.pitch.narrow > *,
+.grid > *,
+.pieces > *,
+.cells > *,
+.stage > *,
+main.demo > * {
+  min-width: 0;
+}
+
+@media (max-width: 620px) {
+  main,
+  header,
+  footer {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  /* The hero is the one place the type is set large enough to need reining in. */
+  .hero h1 {
+    font-size: clamp(2rem, 9vw, 3rem);
+  }
+
+  .cta {
+    flex-wrap: wrap;
+  }
+
+  /* The panel already fills its container, so it needs no width here — but its label column
+     is a fixed 140px, which is over a third of a phone screen. The controls get the room. */
+  .gui {
+    --gui-label-width: 104px;
+    --gui-padding: 14px;
+  }
+
+  /* Tables of any width scroll rather than stretching the page. */
+  .readout {
+    overflow-x: auto;
+  }
+}

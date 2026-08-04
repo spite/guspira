@@ -106,7 +106,12 @@ try {
   // has thrown during module evaluation, taking every assertion in the file with it and
   // leaving a page that reports nothing at all — which looks exactly like a page nobody ran.
   // So the summary is read back: no summary is a failure, not a silence.
-  for (const suite of ["/test/index.html", "/test/dist.html"]) {
+  // The narrow-viewport suite loads every page again inside an iframe, so it needs longer.
+  for (const [suite, budget] of [
+    ["/test/index.html", 12000],
+    ["/test/dist.html", 12000],
+    ["/test/mobile.html", 40000],
+  ]) {
     const out =
       spawnSync(
         CHROME,
@@ -114,11 +119,11 @@ try {
           "--headless=new",
           "--use-gl=swiftshader",
           "--no-sandbox",
-          "--virtual-time-budget=12000",
+          `--virtual-time-budget=${budget}`,
           "--dump-dom",
           `http://localhost:${PORT}${suite}`,
         ],
-        { encoding: "utf8", timeout: 60000 }
+        { encoding: "utf8", timeout: 120000 }
       ).stdout || "";
 
     const text = out.replace(/<[^>]+>/g, "\n");

@@ -161,6 +161,22 @@ if (missingVars.length) {
   if (bad) failures++;
 }
 
+// The narrow-viewport suite names the pages it measures, and a page added later would simply
+// go unmeasured without anything saying so.
+{
+  const mobile = read(join(root, "test/mobile.html"));
+  const listed = new Set([...mobile.matchAll(/"(\/[\w./-]+\.html)"/g)].map((m) => m[1]));
+  const pages = ["/index.html", ...readdirSync(join(root, "demo"))
+    .filter((f) => f.endsWith(".html"))
+    .map((f) => `/demo/${f}`)];
+  const unmeasured = pages.filter((page) => !listed.has(page));
+  console.log(
+    `  ${unmeasured.length ? "FAIL" : "ok  "} narrow-viewport suite covers every page ` +
+      `(${pages.length})${unmeasured.length ? ` — missing ${unmeasured.join(", ")}` : ""}`
+  );
+  if (unmeasured.length) failures++;
+}
+
 check("GUI methods", [...new Set(methods)]);
 check("public exports", [...new Set(exports)]);
 check("options", OPTIONS);

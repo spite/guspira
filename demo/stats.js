@@ -32,7 +32,7 @@ const drawn = stats.counter("drawn");
 // keeps the spikes.
 const frameAvg = stats.timer("frame avg", { average: 250 });
 
-const gui = new GUI("Stats", document.querySelector("#gui-container"), { width: 300 });
+const gui = new GUI("Stats", document.querySelector("#gui-container"));
 
 gui.addSection("Budget");
 // 16.7ms is one frame at 60Hz. The dashed line is drawn at `over`, so "are we over budget" is
