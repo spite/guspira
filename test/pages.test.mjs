@@ -59,8 +59,13 @@ try {
   // to compile under software GL. A page that is genuinely broken fails every time; one that
   // merely ran out of budget on a busy machine passes on the second go. Retried once, so the
   // suite reports breakage rather than load.
-  const load = (page, budget) =>
-    spawnSync(
+  //
+  // The wall-clock timeout scales with the budget instead of sitting at a flat 30s. Virtual
+  // time runs faster than the clock, but compiling a shader under swiftshader costs real
+  // seconds either way — and a killed Chrome flushes no DOM at all, so a retry that asked for
+  // more budget under the same wall-clock ceiling reported "0 rows" and looked like breakage.
+  const load = (page, budget) => {
+    const run = spawnSync(
       CHROME,
       [
         "--headless=new",
@@ -72,10 +77,14 @@ try {
         "--dump-dom",
         `http://localhost:${PORT}${page}`,
       ],
-      { encoding: "utf8", timeout: 30000 }
-    ).stdout || "";
+      { encoding: "utf8", timeout: Math.max(30000, budget * 8) }
+    );
+    // Killed on the timeout: an empty DOM here says nothing about the page.
+    const killed = run.error?.code === "ETIMEDOUT" || run.signal !== null;
+    return { out: run.stdout || "", killed };
+  };
 
-  const verdict = (page, out) => {
+  const verdict = (page, { out, killed }) => {
     const isGallery = page.endsWith("/demo/index.html");
     const rows = (out.match(/gui-row/g) || []).length;
     const emptyReadout = /id="state"><\/div>/.test(out);
@@ -85,7 +94,7 @@ try {
     // demo/warp.js writes its shader-compile result into a monitor row
     const shaderBroken = /gui-monitor">shader error/.test(out) || /gui-monitor">no WebGL2/.test(out);
     const bad = (needsPanel && rows === 0) || emptyReadout || shaderBroken;
-    return { bad, rows, emptyReadout, shaderBroken };
+    return { bad, rows, emptyReadout, shaderBroken, killed };
   };
 
   for (const page of pages) {
@@ -97,7 +106,10 @@ try {
     console.log(
       `  ${result.bad ? "FAIL" : "ok  "} ${page.padEnd(28)} ${result.rows} rows` +
         (result.emptyReadout ? " · readout never filled" : "") +
-        (result.shaderBroken ? " · shader did not compile" : "")
+        (result.shaderBroken ? " · shader did not compile" : "") +
+        // Named rather than left to look like an empty page, so a slow machine is not
+        // mistaken for a broken demo the next time this fails.
+        (result.killed ? " · browser killed on the wall-clock timeout" : "")
     );
     if (result.bad) failures++;
   }

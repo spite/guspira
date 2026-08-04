@@ -558,10 +558,17 @@ class GUI {
     controller.labelEl.classList.add("gui-randomizable");
     controller.labelEl.title = opts.title || "Click, or press Alt+R with the control focused, to randomize";
 
+    // Through `controller.randomize` rather than `fn`, so replacing it replaces every way of
+    // asking for a reroll. The default rolls across the whole declared range, which is not
+    // always the range worth landing in — a sketch that wants a narrower band assigns its own,
+    // and label-click, Alt+R and the panel button must then all agree about what it is.
+    // Guarded like randomizeAll(): clearing `randomize` back to null is how a sketch opts a
+    // control out after it was built, so the label and the shortcut have to go quiet as well
+    // — and the onBeforeRandomize hook should not fire for a roll that never happens.
     const handler = () => {
-      if (controller.row.classList.contains("disabled")) return;
+      if (!controller.randomize || controller.row.classList.contains("disabled")) return;
       this._beforeRandomize();
-      fn();
+      controller.randomize();
     };
 
     // Alt+R while anything in the row has focus. A tab stop per label would double the cost

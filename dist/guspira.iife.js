@@ -1701,9 +1701,9 @@ var Guspira = (() => {
       controller.labelEl.classList.add("gui-randomizable");
       controller.labelEl.title = opts.title || "Click, or press Alt+R with the control focused, to randomize";
       const handler = () => {
-        if (controller.row.classList.contains("disabled")) return;
+        if (!controller.randomize || controller.row.classList.contains("disabled")) return;
         this._beforeRandomize();
-        fn();
+        controller.randomize();
       };
       const keys = (e) => {
         if (e.key !== "r" && e.key !== "R") return;

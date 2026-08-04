@@ -3,7 +3,7 @@
 
 import GUI from "../src/gui.js";
 import { signal, effect } from "../src/reactive.js";
-import { setRandomSource } from "../src/random.js";
+import { setRandomSource, randomInRange } from "../src/random.js";
 import { bindKey } from "../src/keyboard.js";
 import { logger, readout, stamp } from "./shell.js";
 
@@ -32,6 +32,7 @@ const values = {
   glow: signal(true),
   tint: signal("#ffb347"),
   spread: signal([0.3, 0.7]),
+  detail: signal(12),
 };
 
 // Swapping the source is one call. `onBeforeRandomize` below reseeds it before every roll,
@@ -78,6 +79,15 @@ gui.addCheckbox("Glow", values.glow);
 gui.addColor("Tint", values.tint);
 gui.addRangeSlider("Spread", values.spread, 0, 1, 0.05);
 
+// A control's roll is its `randomize`, and replacing it narrows what a reroll can land on
+// without narrowing what the slider can be dragged to. Every route — the label, Alt+R, the
+// button above — goes through the property, so they cannot drift apart. Setting it to null
+// is the late equivalent of `randomizable: false`.
+const detail = gui.addSlider("Detail", values.detail, 0, 64, 1, {
+  title: "Drag anywhere 0–64; a reroll only ever lands between 8 and 16",
+});
+detail.randomize = () => values.detail.set(Math.round(randomInRange(8, 16)));
+
 // bindKey guards the things these always need: no firing while a field has focus, and a
 // bare letter does not collide with Ctrl/Cmd combos.
 bindKey("KeyS", () => {
@@ -96,6 +106,7 @@ effect(() => {
     glow: values.glow(),
     tint: values.tint(),
     spread: values.spread(),
+    detail: values.detail(),
   });
 });
 

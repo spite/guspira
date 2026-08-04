@@ -518,6 +518,18 @@ gui.randomizeAll();                                        // by hand
 gui.addRandomizeButton("Roll these", rebuild, { scope: "following" });  // only what comes after
 ```
 
+A control rolls across its whole declared range, which is not always the range worth landing
+in. Its roll lives on the controller as `randomize`, and replacing it narrows the reroll
+without narrowing what the control can be dragged to. The label, <kbd>Alt</kbd>+<kbd>R</kbd>
+and the randomize button all go through the property, so they cannot disagree — and clearing
+it is the late equivalent of `randomizable: false`:
+
+```js
+const detail = gui.addSlider("Detail", params.detail, 0, 64, 1);
+detail.randomize = () => params.detail.set(Math.round(randomInRange(8, 16)));
+detail.randomize = null;  // stop rerolling this one at all
+```
+
 Sketches using a seeded PRNG can point the toolkit at it, so a reroll is reproducible:
 
 ```js
@@ -534,6 +546,7 @@ const c = gui.addSlider("Radius", params.radius, 0, 4, 0.01);
 c.row        // the .gui-row element
 c.el         // the widget itself
 c.signal     // the bound signal
+c.randomize  // its reroll — call it, replace it, or null it out
 c.setVisible(false)
 c.destroy()  // removes the row and stops its effects
 ```

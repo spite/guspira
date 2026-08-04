@@ -522,6 +522,41 @@
       check("scope: following rolls what comes after", scopedMoved);
       check("scope: following leaves earlier controls alone", scopedBefore() === scopedBeforeValue);
 
+      // Replacing controller.randomize narrows the roll — every way of asking for one has to
+      // land on the replacement, or a label click and the panel button disagree.
+      const bandedSig = signal(0.5);
+      const banded = gui.addSlider("Banded", bandedSig, 0, 1, 0.01);
+      banded.randomize = () => bandedSig.set(0.25);
+      banded.labelEl.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      check("a replaced randomize is what a label click runs", bandedSig() === 0.25, String(bandedSig()));
+      bandedSig.set(0.5);
+      banded.row.dispatchEvent(new KeyboardEvent("keydown", { key: "r", altKey: true, bubbles: true }));
+      check("…and what Alt+R runs", bandedSig() === 0.25, String(bandedSig()));
+      bandedSig.set(0.5);
+      gui.randomizeAll(banded);
+      check("…and randomizeAll agrees it is not the row's own roll", bandedSig() === 0.5, String(bandedSig()));
+      gui.randomizeAll();
+      check("…while a panel-wide roll does run it", bandedSig() === 0.25, String(bandedSig()));
+
+      // Clearing it is how a control opts out after the fact: the label goes quiet rather
+      // than throwing at the click.
+      banded.randomize = null;
+      bandedSig.set(0.5);
+      banded.labelEl.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      banded.row.dispatchEvent(new KeyboardEvent("keydown", { key: "r", altKey: true, bubbles: true }));
+      check("clearing randomize silences the label and Alt+R", bandedSig() === 0.5, String(bandedSig()));
+
+      // …and the hook does not fire for a roll that never happens
+      let hookRuns = 0;
+      gui.options.onBeforeRandomize = () => hookRuns++;
+      banded.labelEl.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      check("onBeforeRandomize stays quiet with nothing to roll", hookRuns === 0, String(hookRuns));
+      banded.randomize = () => bandedSig.set(0.25);
+      banded.labelEl.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      check("onBeforeRandomize fires for a roll that happens", hookRuns === 1, String(hookRuns));
+      gui.options.onBeforeRandomize = null;
+      banded.destroy();
+
       // --- disabled / visibleWhen ---------------------------------------------------
       const gate = signal(true);
       const cond = gui.addSlider("Conditional", signal(1), 0, 2, 0.1, { visibleWhen: () => gate() });
