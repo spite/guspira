@@ -25,13 +25,14 @@
   },
   "files": [
     "src",
-    "css",
+    "css/gui.css",
     "dist",
     "README.md",
     "LICENSE"
   ],
   "sideEffects": [
     "./src/range-slider.js",
+    "./src/stats-graph.js",
     "./css/*"
   ],
   "scripts": {
@@ -39,7 +40,7 @@
     "test": "node test/reactive.test.mjs && node test/params.test.mjs && node test/stress.test.mjs && node test/coverage.test.mjs && node test/dist.test.mjs && node test/pages.test.mjs",
     "build": "node build.mjs",
     "watch": "node build.mjs --watch",
-    "prepublishOnly": "npm test && npm run build",
+    "prepublishOnly": "npm run build && npm test",
     "stress": "node --expose-gc test/stress.test.mjs"
   },
   "keywords": [
@@ -57,8 +58,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/spite/guspira"
+    "url": "git+https://github.com/spite/guspira.git"
   },
+  "homepage": "https://github.com/spite/guspira#readme",
+  "bugs": "https://github.com/spite/guspira/issues",
   "engines": {
     "node": ">=18"
   },

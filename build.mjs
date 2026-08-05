@@ -18,9 +18,13 @@ const outdir = process.env.GUSPIRA_OUT || "dist";
 
 const pkg = JSON.parse(await readFile("package.json", "utf8"));
 
+// npm wants `repository.url` in its canonical `git+https://….git` form; a human reading the
+// top of a built file wants the address they can paste into a browser.
+const repoUrl = pkg.repository.url.replace(/^git\+/, "").replace(/\.git$/, "");
+
 // Kept in the built files so a copy that has drifted from a project can still be identified.
 const banner = `/*! ${pkg.name} v${pkg.version} — ${pkg.description.split(" — ")[0]}
- * ${pkg.repository.url}
+ * ${repoUrl}
  * MIT License, Copyright (c) 2026 ${pkg.author.split(" <")[0]}
  */`;
 
