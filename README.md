@@ -21,39 +21,73 @@ keep in step, which is the thing dat.gui-style controllers spend most of their c
 
 ## Install
 
-Copy `src/` and `css/gui.css` into a project, or install it:
-
 ```sh
 npm install guspira
 ```
 
-Then link the stylesheet and import the modules:
-
-```html
-<link rel="stylesheet" href="./css/gui.css" />
-<script type="module" src="./sketch.js"></script>
-```
+There are no dependencies. The panel's appearance lives entirely in one stylesheet, so import
+that alongside the modules — without it the controls work and look like nothing at all:
 
 ```js
-import GUI from "./src/gui.js";              // relative, or "guspira/gui" from npm
-import { signal, effect } from "./src/reactive.js";
+import GUI from "guspira/gui";
+import { signal, effect } from "guspira/reactive";
+import "guspira/css/gui.css";
 ```
 
-Import from `guspira` (or `src/index.js`) to get everything at once. `src/reactive.js` has no
-DOM dependency at all, so it is usable on its own — in a worker, in a test.
-
-For a page that is not using modules, `dist/guspira.iife.js` puts the same API on a `Guspira`
-global:
+If your bundler doesn't take CSS through an import, link it from wherever it serves files:
 
 ```html
-<link rel="stylesheet" href="dist/guspira.css" />
-<script src="dist/guspira.iife.js"></script>
+<link rel="stylesheet" href="/node_modules/guspira/css/gui.css" />
+```
+
+Import from `guspira` for everything at once, or from a subpath to take only the part you
+need — `guspira/reactive`, `guspira/params`, `guspira/color`, `guspira/presets`,
+`guspira/keyboard`, `guspira/random`, `guspira/format`, `guspira/range-slider`.
+`guspira/reactive` has no DOM dependency at all, so it stands on its own — in a worker, in a
+test, in node.
+
+The package entry is `src/`, not a bundle: your tooling sees the modules as they were written,
+and drops the ones you never import.
+
+### Without a build step
+
+`dist/guspira.iife.min.js` puts the same API on a `Guspira` global, with nothing to install:
+
+```html
+<link rel="stylesheet" href="https://unpkg.com/guspira@0.1.0/dist/guspira.min.css" />
+<script src="https://unpkg.com/guspira@0.1.0/dist/guspira.iife.min.js"></script>
 <script>
   const { GUI, signal } = Guspira;
+
+  const count = signal(400);
+  const gui = new GUI("Sketch");
+  gui.addSlider("Count", count, 10, 2000, 10);
 </script>
 ```
 
-Run it with any static server:
+Or as a module, straight from the CDN — no bundler, no install:
+
+```html
+<script type="module">
+  import { GUI, signal } from "https://cdn.jsdelivr.net/npm/guspira@0.1.0/dist/guspira.min.js";
+</script>
+```
+
+unpkg and jsdelivr both mirror the package, and either serves either file. Pin the version in
+anything meant to keep working: an unpinned URL follows whatever `latest` becomes.
+
+### From the repo
+
+The toolkit is plain ES modules with nothing underneath it, so copying `src/` and
+`css/gui.css` into a project works too — import them by path and there is nothing else to
+bring along:
+
+```js
+import GUI from "./src/gui.js";
+import { signal, effect } from "./src/reactive.js";
+```
+
+To run this repo itself, any static server will do:
 
 ```sh
 npm start          # then open http://localhost:3000/
