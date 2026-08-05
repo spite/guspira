@@ -23,6 +23,7 @@
       <div class="cta">
         <a class="btn primary" href="#examples">Browse the demos ↓</a>
         <a class="btn ghost" href="./demo/warp.html">The full sketch</a>
+        <a class="btn ghost" href="#install">Install</a>
         <a class="btn ghost" href="https://github.com/spite/guspira">GitHub</a>
         <a class="btn ghost" href="./test/">Tests</a>
       </div>
@@ -347,6 +348,76 @@ gui.addSection("Manual", {
           the state behind it, <code>bindKey</code> for shortcuts, and <code>setRandomSource</code>
           when a reroll needs to be reproducible.
         </p>
+      </section>
+
+      <!-- ---------- install ---------- -->
+      <section id="install">
+        <p class="kicker">Getting it</p>
+        <h2 class="h2">One install, no dependencies.</h2>
+        <p class="sub">
+          The whole appearance of the panel lives in one stylesheet, so bring that along with the
+          modules — without it the controls all work and look like nothing at all.
+        </p>
+        <div class="pitch">
+          <div>
+            <p class="sub">
+              Import from <code>guspira</code> to get everything at once, or from a subpath to take
+              only the part you need. What npm installs is the source rather than a bundle, so your
+              tooling sees the modules as they were written and drops the ones you never import.
+            </p>
+            <ul>
+              <li><b>guspira/reactive</b> — the signals alone: no DOM, runs in a worker or in node</li>
+              <li><b>guspira/gui</b> — the panel and every control on it</li>
+              <li><b>guspira/params</b> · <b>guspira/presets</b> — state that survives a reload and travels in a link</li>
+              <li><b>guspira/color</b> · <b>guspira/format</b> · <b>guspira/random</b> · <b>guspira/keyboard</b></li>
+              <li><b>guspira/range-slider</b> — the two-handled element on its own</li>
+            </ul>
+          </div>
+          <div>
+            <div class="codecard">
+              <div class="bar"><i></i><i></i><i></i><span>install</span></div>
+              <pre class="code">npm install guspira</pre>
+            </div>
+            <div class="codecard" style="margin-top: 1.25rem">
+              <div class="bar"><i></i><i></i><i></i><span>sketch.js</span></div>
+              <pre class="code">import GUI from "guspira/gui";
+import { signal, effect } from "guspira/reactive";
+import "guspira/css/gui.css";
+
+const count = signal(400);
+
+const gui = new GUI("Sketch");
+gui.addSlider("Count", count, 10, 2000, 10);
+
+effect(() =&gt; rebuild(count()));</pre>
+            </div>
+          </div>
+        </div>
+
+        <p class="sub" style="margin-top: 2rem">
+          And for a page with no build step at all: the same API arrives on a <code>Guspira</code>
+          global, straight from a CDN. Pin the version in anything meant to keep working — an
+          unpinned URL follows whatever <code>latest</code> becomes.
+        </p>
+        <div class="codecard">
+          <div class="bar"><i></i><i></i><i></i><span>index.html</span></div>
+          <pre class="code">&lt;link rel="stylesheet" href="https://unpkg.com/guspira@0.1.0/dist/guspira.min.css"&gt;
+&lt;script src="https://unpkg.com/guspira@0.1.0/dist/guspira.iife.min.js"&gt;&lt;/script&gt;
+
+&lt;script&gt;
+  const { GUI, signal } = Guspira;
+
+  const count = signal(400);
+  const gui = new GUI("Sketch");
+  gui.addSlider("Count", count, 10, 2000, 10);
+&lt;/script&gt;</pre>
+        </div>
+        <div class="codecard" style="margin-top: 1.25rem">
+          <div class="bar"><i></i><i></i><i></i><span>…or as a module, no global</span></div>
+          <pre class="code">&lt;script type="module"&gt;
+  import { GUI, signal } from "https://cdn.jsdelivr.net/npm/guspira@0.1.0/dist/guspira.min.js";
+&lt;/script&gt;</pre>
+        </div>
       </section>
 
       <!-- ---------- examples ---------- -->
