@@ -1,4 +1,4 @@
-/*! guspira v0.1.0 — A reactive GUI toolkit for creative coding sketches
+/*! guspira v0.1.1 — A reactive GUI toolkit for creative coding sketches
  * https://github.com/spite/guspira
  * MIT License, Copyright (c) 2026 Jaume Sanchez
  */
