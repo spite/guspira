@@ -60,7 +60,7 @@
     "type": "git",
     "url": "git+https://github.com/spite/guspira.git"
   },
-  "homepage": "https://github.com/spite/guspira#readme",
+  "homepage": "https://spite.github.io/guspira/",
   "bugs": "https://github.com/spite/guspira/issues",
   "engines": {
     "node": ">=18"
