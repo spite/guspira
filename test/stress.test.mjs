@@ -8,7 +8,7 @@
 //
 //   node test/stress.test.mjs
 
-import { signal, computed, effect, batch, untrack, tweened } from "../src/reactive.js";
+import { signal, computed, effect, batch, tweened } from "../src/reactive.js";
 
 let failures = 0;
 const check = (name, cond, extra = "") => {
@@ -190,16 +190,15 @@ console.log("\ntweens under load");
 {
   const COUNT = 2000;
   const tweens = Array.from({ length: COUNT }, () => tweened(0, 50));
-  batch(() => tweens.forEach((t, i) => t.target.set(i)));
-  check(`${COUNT} tweens all took their target`, tweens.every((t, i) => t.target.peek() === i));
-
+  batch(() => tweens.forEach((t, i) => t.set(i)));
   // Tweens advance on a clock. Without a frame loop the value has not arrived yet, but the
   // target — which is what the panel, presets and persistence read — is correct immediately.
   const settled = tweens.filter((t, i) => t.peek() === i).length;
-  check("…and none of them lost their target while animating",
-        tweens.every((t, i) => t.target.peek() === i), `${settled}/${COUNT} already at rest`);
+  check(`${COUNT} tweens all took their target`, tweens.every((t, i) => t.target.peek() === i),
+        `${settled}/${COUNT} already at rest`);
 
-  tweens.forEach((t) => t.stop?.());
+  // Jumped to rest, so none of them is still booking frames when the suite exits.
+  tweens.forEach((t, i) => t.reset(i));
 }
 
 console.log("\nrunaway guard");
@@ -221,6 +220,22 @@ console.log("\nrunaway guard");
   console.error = realError;
   check("a self-feeding effect gives up instead of hanging",
         /never settled/.test(message), `${message.slice(0, 60)} (${elapsed.toFixed(0)}ms)`);
+}
+
+{
+  // A pass that is merely large is not a runaway: the guard counts how often one effect
+  // repeats, not how many effects there are.
+  const wide = signal(0);
+  const WIDE = 120000;
+  let wideRuns = 0;
+  const stops = [];
+  for (let i = 0; i < WIDE; i++) stops.push(effect(() => { wide(); wideRuns++; }));
+  wideRuns = 0;
+  let wideMessage = "";
+  try { wide.set(1); } catch (error) { wideMessage = error.message; }
+  check(`one write reaching ${WIDE.toLocaleString()} effects is not mistaken for a loop`,
+        wideRuns === WIDE && wideMessage === "", `${wideRuns} ran${wideMessage ? ` — ${wideMessage.slice(0, 40)}` : ""}`);
+  stops.forEach((stop) => stop());
 }
 
 console.log("\nmemory");

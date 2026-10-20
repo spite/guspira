@@ -21,6 +21,7 @@
         "/index.html",
         "/demo/index.html",
         "/demo/controllers.html",
+        "/demo/colour.html",
         "/demo/controls.html",
         "/demo/easing.html",
         "/demo/extending.html",
@@ -59,6 +60,8 @@
           const frame = await load(page, width);
           const doc = frame.contentDocument;
           const scrollWidth = doc.documentElement.scrollWidth;
+          // A 404 has nothing in it to spill, and would pass every width.
+          check(`${page} loaded`, !!doc.querySelector('link[rel="stylesheet"]'));
 
           // A page may hold something wider than itself — a code block, a table — as long as
           // that thing scrolls inside its own box. What must not happen is the *page* growing,

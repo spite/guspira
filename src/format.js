@@ -17,13 +17,17 @@ export function precision(step) {
   return p;
 }
 
-export function formatFloat(value, step) {
-  return parseFloat(value).toFixed(precision(step));
+// Decimals a stop on the grid needs: the step's, or those of the value the grid starts from.
+const decimals = (step, base) => Math.max(precision(step), isFinite(base) ? precision(base) : 0);
+
+// `base` is where the grid starts, for a range whose `min` has more decimals than its step.
+export function formatFloat(value, step, base = 0) {
+  return parseFloat(value).toFixed(decimals(step, base));
 }
 
-// Snaps to the step grid and clamps to the range. The grid is anchored at zero, the same
-// way <input type="range"> does it.
+// Snaps to a grid counted from `min` (from zero when there is none), then clamps to the range.
 export function snap(value, step, min, max) {
-  const snapped = Math.round(value / step) * step;
-  return parseFloat(Math.max(min, Math.min(max, snapped)).toFixed(precision(step)));
+  const base = isFinite(min) ? min : 0;
+  const snapped = base + Math.round((value - base) / step) * step;
+  return Math.max(min, Math.min(max, parseFloat(snapped.toFixed(decimals(step, base)))));
 }

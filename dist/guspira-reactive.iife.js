@@ -47,6 +47,9 @@ var GuspiraReactive = (() => {
   var pending = /* @__PURE__ */ new Set();
   var queue = [];
   var queueIndex = 0;
+  var marked = [];
+  var passId = 0;
+  var MAX_RUNS_PER_PASS = 1e5;
   var ReactiveEffect = class {
     constructor(fn, scheduler) {
       this.fn = fn;
@@ -57,6 +60,11 @@ var GuspiraReactive = (() => {
       this.dirty = false;
       this.cleanupFn = null;
       this.children = null;
+      this.downstream = null;
+      this.stale = false;
+      this.unschedule = null;
+      this.pass = 0;
+      this.passRuns = 0;
       if (activeEffect) (activeEffect.children ??= []).push(this);
     }
     // What a dependency change does to this effect: run it, or hand it to its scheduler to be
@@ -70,8 +78,15 @@ var GuspiraReactive = (() => {
       if (this.scheduler) this.scheduler(this);
       else this.run();
     }
+    // A run already waiting in a queue is taken out and remembered as a change to catch up on.
     pause() {
       this.paused = true;
+      if (this.unschedule && this.unschedule(this)) this.dirty = true;
+    }
+    // What a queue calls when the effect's turn comes.
+    runQueued() {
+      if (this.paused) this.dirty = true;
+      else this.run();
     }
     // Catches up immediately rather than through the scheduler: resuming is itself the moment
     // the caller chose, so waiting for another frame after it would just add latency.
@@ -96,6 +111,7 @@ var GuspiraReactive = (() => {
         return result;
       } finally {
         activeEffect = prev;
+        if (!this.active) this.dispose();
       }
     }
     runCleanup() {
@@ -116,36 +132,45 @@ var GuspiraReactive = (() => {
       this.children = null;
       children.forEach((child) => child.stop());
     }
-    stop() {
-      if (!this.active) return;
+    dispose() {
       this.stopChildren();
       this.runCleanup();
       this.cleanup();
+    }
+    stop() {
+      if (!this.active) return;
       this.active = false;
+      if (this.unschedule) this.unschedule(this);
+      this.dispose();
     }
   };
   function track(subscribers) {
-    if (activeEffect) {
+    if (activeEffect && activeEffect.active) {
       subscribers.add(activeEffect);
       activeEffect.deps.add(subscribers);
     }
   }
-  function reportError(error) {
-    if (typeof console !== "undefined") console.error("[guspira] effect threw:", error);
+  function reportError(error, what = "effect threw") {
+    if (typeof console !== "undefined") console.error(`[guspira] ${what}:`, error);
   }
   function drain() {
     batchDepth++;
+    passId++;
     try {
-      let guard = 0;
       while (queueIndex < queue.length) {
-        if (++guard > 1e5) {
+        const effect2 = queue[queueIndex++];
+        pending.delete(effect2);
+        if (effect2.downstream && !effect2.stale) continue;
+        if (effect2.pass !== passId) {
+          effect2.pass = passId;
+          effect2.passRuns = 0;
+        }
+        if (++effect2.passRuns > MAX_RUNS_PER_PASS) {
           reset();
           throw new Error(
             "[guspira] reactive update never settled — an effect is very likely writing a signal it also reads. Use peek() to read without subscribing, or untrack()."
           );
         }
-        const effect2 = queue[queueIndex++];
-        pending.delete(effect2);
         try {
           effect2.notify();
         } catch (error) {
@@ -161,12 +186,27 @@ var GuspiraReactive = (() => {
     pending.clear();
     queue.length = 0;
     queueIndex = 0;
+    for (const computation of marked) computation.stale = false;
+    marked.length = 0;
+  }
+  function markStale(computation) {
+    const stack = [computation];
+    while (stack.length) {
+      const next = stack.pop();
+      if (next.stale) continue;
+      next.stale = true;
+      marked.push(next);
+      next.downstream.forEach((reader) => {
+        if (reader.downstream && !reader.stale) stack.push(reader);
+      });
+    }
   }
   function trigger(subscribers) {
     if (subscribers.size === 0) return;
     batchDepth++;
     try {
       subscribers.forEach((effect2) => {
+        if (effect2.downstream) markStale(effect2);
         if (pending.has(effect2)) return;
         pending.add(effect2);
         queue.push(effect2);
@@ -183,7 +223,7 @@ var GuspiraReactive = (() => {
     }
     return false;
   }
-  function signal(initialValue) {
+  function createSignal(initialValue) {
     let value = initialValue;
     const subscribers = /* @__PURE__ */ new Set();
     const sig = () => {
@@ -199,14 +239,35 @@ var GuspiraReactive = (() => {
     sig.peek = () => value;
     sig.isSignal = true;
     sig.target = sig;
-    return sig;
+    return { sig, subscribers };
+  }
+  function signal(initialValue) {
+    return createSignal(initialValue).sig;
   }
   function computed(fn) {
-    const value = signal(void 0);
-    const computation = new ReactiveEffect(() => value.set(fn()));
+    const { sig: value, subscribers } = createSignal(void 0);
+    const computation = new ReactiveEffect(() => {
+      computation.stale = false;
+      value.set(fn());
+    });
+    computation.downstream = subscribers;
     computation.run();
-    const computedSignal = () => value();
-    computedSignal.peek = value.peek;
+    const refresh = () => {
+      if (!computation.stale || !computation.active) return;
+      try {
+        computation.run();
+      } catch (error) {
+        reportError(error);
+      }
+    };
+    const computedSignal = () => {
+      refresh();
+      return value();
+    };
+    computedSignal.peek = () => {
+      refresh();
+      return value.peek();
+    };
     computedSignal.isSignal = true;
     computedSignal.stop = () => computation.stop();
     return computedSignal;
@@ -222,7 +283,7 @@ var GuspiraReactive = (() => {
       queue2.clear();
       for (const job of jobs) {
         try {
-          job.run();
+          job.runQueued();
         } catch (error) {
           reportError(error);
         }
@@ -235,6 +296,8 @@ var GuspiraReactive = (() => {
     };
     return {
       schedule,
+      // Takes a job back out, for an effect stopped or paused while it waited. True if it was in.
+      unschedule: (job) => queue2.delete(job),
       flush,
       get size() {
         return queue2.size;
@@ -279,6 +342,9 @@ var GuspiraReactive = (() => {
     const { scheduler, lazy = false } = options;
     const enqueue = !scheduler ? void 0 : typeof scheduler === "function" ? scheduler : (job) => scheduler.schedule(job);
     const e = new ReactiveEffect(fn, enqueue);
+    if (scheduler && typeof scheduler.unschedule === "function") {
+      e.unschedule = (job) => scheduler.unschedule(job);
+    }
     if (!lazy) e.run();
     const handle = () => e.stop();
     handle.stop = () => e.stop();
@@ -323,7 +389,7 @@ var GuspiraReactive = (() => {
     };
     const tick = (time) => {
       if (startTime === null) startTime = time;
-      const progress = Math.min((time - startTime) / duration, 1);
+      const progress = Math.min(Math.max(0, time - startTime) / duration, 1);
       value.set(progress < 1 ? interpolate(from, to, easing(progress)) : to);
       if (progress < 1) frameId = rafSchedule(tick);
       else stopAnimation();
@@ -331,10 +397,15 @@ var GuspiraReactive = (() => {
     const sig = () => value();
     sig.peek = value.peek;
     sig.isSignal = true;
-    sig.target = target;
+    const targetView = () => target();
+    targetView.peek = target.peek;
+    targetView.isSignal = true;
+    targetView.set = (newValue) => sig.set(newValue);
+    targetView.update = (updater) => sig.update(updater);
+    sig.target = targetView;
     sig.set = (newValue) => {
       if (interpolate === lerpNumber && (typeof newValue !== "number" || !isFinite(newValue))) {
-        reportError(new Error(`tweened() interpolates numbers; got ${JSON.stringify(newValue)}`));
+        reportError(new Error(`tweened() interpolates numbers; got ${String(newValue)}`), "write refused");
         return;
       }
       if (newValue === to) return;
@@ -342,10 +413,14 @@ var GuspiraReactive = (() => {
       from = value.peek();
       to = newValue;
       target.set(newValue);
-      if (duration === 0) value.set(to);
-      else frameId = rafSchedule(tick);
+      if (duration === 0) {
+        value.set(to);
+      } else {
+        startTime = now();
+        frameId = rafSchedule(tick);
+      }
     };
-    sig.update = (updater) => sig.set(updater(value.peek()));
+    sig.update = (updater) => sig.set(updater(target.peek()));
     sig.reset = (newValue) => {
       stopAnimation();
       from = newValue;

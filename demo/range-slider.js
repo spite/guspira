@@ -1,7 +1,7 @@
 // The slider element on its own — no panel, no signals. Importing the module registers
 // <range-slider>; everything below is plain DOM and the FormData API.
 
-import RangeSlider from "../src/range-slider.js";
+import "../src/range-slider.js";
 import { valueToCurve } from "../src/curve.js";
 import { logger, readout, stamp } from "./shell.js";
 

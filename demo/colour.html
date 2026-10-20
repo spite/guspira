@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Guspira — Colour</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="../css/gui.css" />
+    <link rel="stylesheet" href="../css/site.css" />
+    <style>
+      #canvas {
+        width: 100%;
+        height: 200px;
+        display: block;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        color: var(--dim);
+      }
+    </style>
+  </head>
+  <body>
+    <header class="page-head">
+      <a class="back" href="./">← all demos</a>
+      <h1>Colour</h1>
+      <p>
+        A colour signal holds whatever the sketch wants — a hex string, the 0..1 triplet a shader
+        takes, bytes, or a shape of your own — and <code>addColor</code> converts.
+        <code>mixColors</code> joins two of them through OKLab, so the path between them keeps
+        its light.
+      </p>
+    </header>
+    <main class="demo">
+      <section class="stage">
+        <canvas id="canvas"></canvas>
+        <div>
+          <h2>What each signal holds</h2>
+          <div class="readout" id="state"></div>
+        </div>
+        <div>
+          <h2>The panel</h2>
+          <div class="codecard">
+            <div class="bar"><i></i><i></i><i></i><span>panel.js</span></div>
+            <pre class="code">gui.addColor("Tint", tint);                         // "#ff6500"
+gui.addColor("Glow", glow, { format: "rgb" });      // [1, 0.4, 0]
+gui.addColor("Fill", fill, { format: "rgb255" });   // [255, 101, 0]
+
+// anything else is two functions
+gui.addColor("Sky", sky, {
+  format: {
+    toHex: ([h, s, l]) => hslToHex(h, s, l),
+    fromHex: (hex, previous) => {
+      const [h, s, l] = hexToHsl(hex);
+      return [s === 0 ? previous[0] : h, s, l];     // a grey keeps its hue
+    },
+  },
+});
+
+mixColors("#ff6500", "#0066ff", 0.5);               // through OKLab</pre>
+          </div>
+        </div>
+        <div class="note">
+          <strong>Try:</strong> pick a colour in each of the first four swatches and watch the
+          readout — the same control writes a string, a 0..1 triplet, bytes and an
+          <code>[h, s, l]</code>. Then press <em>Pick grey in the hsl swatch</em>: saturation drops
+          to 0 and the hue stays where it was, because the codec is handed the value it replaces.
+          Under <em>Mixing</em>, set <em>From</em> and <em>To</em> to opposites and compare the two
+          strips — the lower one dims and greys in the middle, the upper one does not.
+        </div>
+      </section>
+      <aside id="gui-container"></aside>
+    </main>
+    <script type="module" src="./colour.js"></script>
+    <footer>
+      <span><a href="../">Guspira</a> · <a href="./">all demos</a></span>
+      <span><a href="https://github.com/spite/guspira">GitHub</a> · MIT © Jaume Sanchez Elias</span>
+    </footer>
+    <script type="module" src="../theme.js"></script>
+  </body>
+</html>

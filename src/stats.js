@@ -68,11 +68,12 @@ export function createStats({ clock = defaultClock } = {}) {
     const counter = {
       name,
       signal: sig,
-      latest: initial,
       averager,
       // Left for flush() to write, so a frame's worth of measuring costs one signal write and
       // one pass of effects rather than one per counter per call.
       pending: initial,
+      // Set while a total is being built up with add(), for flush() to average once.
+      accumulating: false,
     };
     counters.push(counter);
     return counter;
@@ -156,17 +157,19 @@ export function createStats({ clock = defaultClock } = {}) {
         // `sample`, not `set`: see RESERVED above.
         sample(value) {
           counter.pending = value;
+          counter.accumulating = false;
           counter.averager.push(value);
           return this;
         },
         add(amount = 1) {
           counter.pending += amount;
-          counter.averager.push(counter.pending);
+          counter.accumulating = true;
           return this;
         },
         // Counters that accumulate within a frame have to be cleared at the top of the next.
         clear() {
           counter.pending = 0;
+          counter.accumulating = true;
           return this;
         },
       });
@@ -177,7 +180,10 @@ export function createStats({ clock = defaultClock } = {}) {
     flush() {
       batch(() => {
         for (const counter of counters) {
-          counter.latest = counter.pending;
+          if (counter.accumulating) {
+            counter.averager.push(counter.pending);
+            counter.accumulating = false;
+          }
           counter.signal.set(counter.averager.read(counter.pending));
         }
       });

@@ -32,6 +32,10 @@
       <section class="stage">
         <canvas id="canvas"></canvas>
         <div>
+          <h2>&lt;stats-graph&gt; on its own — no panel, fed by a function</h2>
+          <stats-graph id="standalone" min="0" over="16.7"></stats-graph>
+        </div>
+        <div>
           <h2>The counters</h2>
           <div class="readout" id="state"></div>
         </div>
@@ -42,8 +46,8 @@
         <div class="note">
           <strong>Try:</strong> push <em>Extra work per frame</em> up until the frame graph crosses
           its dashed line — the reading turns warm at the same moment. The <em>Breakdown</em> graph
-          shows the same milliseconds split between simulate and draw, so you can see which half
-          took them. Then <strong>fold the Budget section</strong>: the graphs stop drawing
+          shows the same milliseconds split between move, bounce, clear and paint, so you can see
+          which phase took them. Then <strong>fold the Budget section</strong>: the graphs stop drawing
           entirely while they are out of sight, which is the whole point of a monitor.
         </div>
       </section>

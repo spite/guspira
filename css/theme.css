@@ -4,7 +4,8 @@
 
 /* Dark by default, light when the system asks for it, and either one when the reader says so
    with the toggle. The explicit choice is an attribute on <html>, so it outranks the media
-   query without any of the palettes being duplicated. */
+   query. The light palette is written out twice below, once for each way of arriving at it:
+   keep the two in step. */
 :root {
   color-scheme: dark;
   --accent: #ff9f45;

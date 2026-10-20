@@ -24,7 +24,11 @@ gui.addSelect("Mode", mode, ["auto", "manual"], {
   onChange: (v) => log(`${stamp()} onChange: mode → ${v}`),
 });
 
+// `randomizable: false` keeps a control out of label-click and panel-wide rerolls — for
+// values that are not a matter of taste. A reroll that could flip this one would lock the
+// panel at random.
 gui.addCheckbox("Lock everything", locked, {
+  randomizable: false,
   onChange: (v) => log(`${stamp()} onChange: locked → ${v}`),
 });
 
@@ -49,12 +53,14 @@ gui.addSlider("Always off", signal(1), 0, 2, 0.1, {
   disabled: true, // a constant, not a rule
   title: "disabled: true — no predicate needed",
 });
-// `visible` is the same idea for presence: a constant where `visibleWhen` takes a rule. This
-// row is built and never shown, which is the point — it costs a line to keep, not a branch.
-gui.addSlider("Never shown", signal(1), 0, 2, 0.1, { visible: false });
-// `paused` is the same idea for a graph: a constant where `pausedWhen` takes a rule. This one
-// never samples, so it stays as empty as it started — dimmed, to say it is held and not broken.
-gui.addGraph("Held graph", exposure, { paused: true, min: 0, max: 4 });
+// `visible` is the same idea for presence: a constant where `visibleWhen` takes a rule. It
+// suits something decided once at load — here a debug row that only exists with ?debug in
+// the address, kept as one line rather than a branch around it.
+const DEBUG = new URLSearchParams(location.search).has("debug");
+gui.addMonitor("Debug: raw ISO", iso, { visible: DEBUG });
+// A graph takes the same pair as `paused` / `pausedWhen`. Locked, this one holds its history
+// and dims instead of scrolling a flat line over what you stopped to look at.
+gui.addGraph("Exposure history", exposure, { pausedWhen: () => locked(), min: 0, max: 4 });
 
 // `visibleWhen` removes the row entirely rather than dimming it.
 gui.addSection("Manual settings", { visibleWhen: () => mode() === "manual" });
@@ -64,15 +70,9 @@ gui.addText("This whole section is behind <code>visibleWhen</code>.");
 gui.endSection();
 gui.addSeparator();
 
-// `randomizable: false` keeps a control out of label-click and panel-wide rerolls — for
-// values that are not a matter of taste.
 // `scrub: false` takes away drag-to-change, for a value that should only ever be typed.
-gui.addNumber("Seed", seed, {
-  randomizable: false,
-  scrub: false,
-  title: "Not randomizable, and not scrubbable",
-});
-gui.addRandomizeButton("Randomize", () => log(`${stamp()} rerolled (seed untouched)`));
+gui.addNumber("Seed", seed, { scrub: false, title: "scrub: false — typed, never dragged" });
+gui.addRandomizeButton("Randomize", () => log(`${stamp()} rerolled (the lock left alone)`));
 
 // Programmatic writes move the widgets but are not user input, so onChange does not fire.
 gui.addButton("Set from code", () => {
@@ -92,6 +92,8 @@ effect(() => {
     seed: seed(),
     "ISO row disabled": locked() || isAuto(),
     "manual section visible": mode() === "manual",
+    "exposure graph held": locked(),
+    "debug row shown (?debug)": DEBUG,
   });
 });
 

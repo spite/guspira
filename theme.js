@@ -1,5 +1,5 @@
 // The light/dark switch every page carries. Without a stored choice the pages follow the
-// system, which css/site.css already handles on its own — this only exists to let a reader
+// system, which css/theme.css already handles on its own — this only exists to let a reader
 // override it, and to remember that they did.
 
 const KEY = "guspira-theme";

@@ -3,53 +3,53 @@
   "files": [
     {
       "file": "guspira-reactive.iife.js",
-      "raw": 11537,
-      "gzip": 3489
+      "raw": 13985,
+      "gzip": 4090
     },
     {
       "file": "guspira-reactive.iife.min.js",
-      "raw": 4934,
-      "gzip": 2306
+      "raw": 5923,
+      "gzip": 2646
     },
     {
       "file": "guspira-reactive.js",
-      "raw": 9668,
-      "gzip": 3088
+      "raw": 11966,
+      "gzip": 3669
     },
     {
       "file": "guspira-reactive.min.js",
-      "raw": 4453,
-      "gzip": 2084
+      "raw": 5431,
+      "gzip": 2438
     },
     {
       "file": "guspira.css",
-      "raw": 11399,
-      "gzip": 2794
+      "raw": 11667,
+      "gzip": 2826
     },
     {
       "file": "guspira.iife.js",
-      "raw": 108518,
-      "gzip": 27481
+      "raw": 121564,
+      "gzip": 30769
     },
     {
       "file": "guspira.iife.min.js",
-      "raw": 53180,
-      "gzip": 17719
+      "raw": 59585,
+      "gzip": 19834
     },
     {
       "file": "guspira.js",
-      "raw": 101427,
-      "gzip": 26789
+      "raw": 113867,
+      "gzip": 30004
     },
     {
       "file": "guspira.min.css",
-      "raw": 9624,
-      "gzip": 2669
+      "raw": 9887,
+      "gzip": 2703
     },
     {
       "file": "guspira.min.js",
-      "raw": 52661,
-      "gzip": 17505
+      "raw": 59068,
+      "gzip": 19604
     }
   ]
 }

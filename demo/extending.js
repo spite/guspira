@@ -8,7 +8,7 @@
 // it keeps drawing into a canvas nobody can see.
 
 import GUI, { Controller, Section, Tab } from "../src/gui.js";
-import { signal, toSignal, isSignal } from "../src/reactive.js";
+import { signal, effect, toSignal, isSignal } from "../src/reactive.js";
 import { snap, formatFloat, precision } from "../src/format.js";
 import { randomInRange, randomElement, randomHexColor, randomBool } from "../src/random.js";
 import { logger, readout, stamp } from "./shell.js";
@@ -35,7 +35,7 @@ GUI.prototype.addDial = function (label, value, opts = {}) {
   const dial = document.createElement("div");
   dial.tabIndex = 0;
   dial.setAttribute("role", "slider");
-  dial.setAttribute("aria-label", label);
+  controller.labelled(dial); // named after the row's label, as the built-in controls are
   dial.style.cssText =
     "position:relative;width:34px;height:34px;flex:0 0 auto;border-radius:50%;cursor:grab;" +
     "background:var(--gui-field-bg);border:1px solid var(--gui-border)";
@@ -93,12 +93,12 @@ GUI.prototype.addDial = function (label, value, opts = {}) {
   controller.bind(() => {
     const degrees = sig();
     needle.style.transform = `rotate(${degrees}deg)`;
-    readable.textContent = `${formatFloat(degrees, step)}°`;
+    readable.textContent = `${formatFloat(degrees, step, min)}°`;
     dial.setAttribute("aria-valuenow", String(degrees));
   });
 
-  // Clicking the label rerolls it, exactly like a built-in control.
-  this._randomizable(controller, () => commit(randomInRange(min, max)), opts);
+  // Assigning `randomize` is all it takes: the label, Alt+R and randomizeAll() all read it.
+  if (opts.randomizable !== false) controller.randomize = () => commit(randomInRange(min, max));
 
   wrap.append(dial, readable);
   controller.row.append(wrap);
@@ -109,7 +109,7 @@ GUI.prototype.addDial = function (label, value, opts = {}) {
 
 // --- a graph, which runs a loop that has to be stopped -----------------------------------
 // The shape any live monitor takes — an fps counter, a meter, rstats — is this one.
-GUI.prototype.addGraph = function (label, value, opts = {}) {
+GUI.prototype.addSparkline = function (label, value, opts = {}) {
   const sig = toSignal(value);
   const { min = 0, max = 1, samples = 96 } = opts;
   const controller = this.createRow(label, opts);
@@ -182,9 +182,9 @@ const gui = new GUI("Extending", document.querySelector("#gui-container"));
 
 const heading = gui.addSection("Custom rows");
 gui.addCheckbox("Lock", state.locked);
-gui.addDial("Heading", state.heading, { disabled: () => state.locked() });
+const headingDial = gui.addDial("Heading", state.heading, { disabled: () => state.locked() });
 gui.addDial("Tilt", state.tilt, { min: -90, max: 90, disabled: () => state.locked() });
-gui.addGraph("Wave", wave);
+const graph = gui.addSparkline("Wave", wave);
 
 gui.addSection("Random helpers");
 gui.addColor("Tint", state.tint);
@@ -207,10 +207,7 @@ gui.addButton("setDisabled(true) for a second", () => {
   target.setDisabled(true);
   setTimeout(() => target.setDisabled(false), 1000);
 });
-gui.addButton("Destroy the graph", () => {
-  const graph = gui._controllers.find((c) => c.labelEl && c.labelEl.textContent === "Wave");
-  if (graph) graph.destroy();
-});
+gui.addButton("Destroy the graph", () => graph.destroy());
 gui.addButton("Fold the custom rows", () => heading.setOpen(!heading.open()));
 
 // --- what the panel is made of ---------------------------------------------------------------
@@ -222,16 +219,16 @@ function render() {
     shape: state.shape(),
     locked: state.locked(),
     "— types —": "",
-    "addDial returns a Controller": gui._controllers.some((c) => c instanceof Controller),
+    "addDial returns a Controller": headingDial instanceof Controller,
     "addSection returns a Section": heading instanceof Section,
     "a Section is a Controller": heading instanceof Controller,
-    "no tabs on this panel": !gui._controllers.some((c) => c instanceof Tab),
+    "…and not a Tab": !(heading instanceof Tab),
     "toSignal(4) is a signal": isSignal(toSignal(4)),
     "toSignal passes signals through": toSignal(state.heading) === state.heading,
     "precision(0.1) decimals": precision(0.1),
   });
 }
 
-gui._controllers.forEach((c) => c.signal && c.bind(render));
-render();
+// One effect for the readout: it reads every signal above, so any of them moving redraws it.
+effect(render);
 log(`${stamp()} ready — the dial and graph rows are built from createRow + bind + onDestroy`);

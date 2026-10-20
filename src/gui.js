@@ -4,7 +4,7 @@
 // it created (`.row`, `.el`, `.destroy()`), for the cases where a panel is built
 // dynamically or needs a widget the toolkit doesn't ship.
 
-import { signal, effect, toSignal } from "./reactive.js";
+import { signal, effect, batch, untrack, toSignal } from "./reactive.js";
 import { formatFloat, snap } from "./format.js";
 import "./range-slider.js";
 import "./stats-graph.js";
@@ -15,12 +15,15 @@ import { bindKey } from "./keyboard.js";
 
 const CHEVRON = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>`;
 
-function composeRangeValue(min, max, step) {
-  return `${formatFloat(min, step)}–${formatFloat(max, step)}`;
+function composeRangeValue(lo, hi, step, base) {
+  return `${formatFloat(lo, step, base)}–${formatFloat(hi, step, base)}`;
 }
 
 // Every control ends with the same optional argument: an options object.
 function readOptions(opts) {
+  if (typeof opts === "function") {
+    console.warn("[guspira] a function was passed where options go — use { onChange: fn }");
+  }
   return opts && typeof opts === "object" ? opts : {};
 }
 
@@ -59,19 +62,22 @@ function makeScrubbable(input, { step, onScrub, enabled }) {
     e.preventDefault();
     origin = { x: e.clientX, value: parseFloat(input.value) || 0 };
     scrubbing = false;
+    // Captured from the press, so a release outside the field still ends the gesture.
+    // Synthetic events in a test have no live pointer to capture; the drag still works
+    // through the listeners below, so a refusal here is not worth failing over.
+    try {
+      input.setPointerCapture(e.pointerId);
+    } catch {}
   };
 
   const move = (e) => {
     if (!origin) return;
+    // No button held: the release happened somewhere this field never heard about.
+    if (!(e.buttons & 1)) return up(e);
     const dx = e.clientX - origin.x;
     if (!scrubbing) {
       if (Math.abs(dx) < SCRUB_THRESHOLD) return;
       scrubbing = true;
-      // Synthetic events in a test have no live pointer to capture; the drag still works
-      // through the listeners below, so a refusal here is not worth failing over.
-      try {
-        input.setPointerCapture(e.pointerId);
-      } catch {}
       document.body.classList.add("gui-scrubbing");
     }
     // Measured from where the press began rather than accumulated per event, so a long drag
@@ -86,7 +92,7 @@ function makeScrubbable(input, { step, onScrub, enabled }) {
     } catch {}
     // It never travelled, so it was a click: hand over to typing, with the old value selected
     // so the first keystroke replaces it.
-    if (!scrubbing) {
+    if (!scrubbing && e.type === "pointerup") {
       input.focus();
       input.select();
     }
@@ -124,7 +130,66 @@ function scrubStepFor(step, min, max) {
 // travel. Read-only monitors are the exception — they display whatever they are given.
 const targetOf = (sig) => sig.target || sig;
 
+const NATIVE_CONTROLS = "button, input, select, textarea";
+
+// Takes everything under `root` that sits in a disabled row or section out of the keyboard's
+// reach, and gives back what the panel took. Native controls are disabled, custom widgets
+// leave the tab order, and a control the app disabled itself is left as it was.
+function syncDisabled(root) {
+  for (const node of root.querySelectorAll(`${NATIVE_CONTROLS}, [tabindex]`)) {
+    const off = node.closest(".gui-row.disabled, .gui-section.disabled") !== null;
+    if (node.matches(NATIVE_CONTROLS)) {
+      if (off && !node.disabled) {
+        node.disabled = true;
+        node.dataset.guiOff = "";
+      } else if (!off && "guiOff" in node.dataset) {
+        node.disabled = false;
+        delete node.dataset.guiOff;
+      }
+    } else if (off && node.tabIndex >= 0 && !("guiTabindex" in node.dataset)) {
+      node.dataset.guiTabindex = node.getAttribute("tabindex");
+      node.tabIndex = -1;
+    } else if (!off && "guiTabindex" in node.dataset) {
+      node.setAttribute("tabindex", node.dataset.guiTabindex);
+      delete node.dataset.guiTabindex;
+    }
+  }
+}
+
+// The class stops the pointer; the keyboard is stopped control by control rather than with
+// `inert`, which would hide the row from screen readers instead of announcing it unavailable.
+function markDisabled(el, disabled) {
+  el.classList.toggle("disabled", disabled);
+  if (disabled) el.setAttribute("aria-disabled", "true");
+  else el.removeAttribute("aria-disabled");
+  syncDisabled(el);
+  // A row is turned off before its control is added, so look again once building is done.
+  queueMicrotask(() => syncDisabled(el));
+}
+
+// Off because of its own row, or because the section around it is.
+const isOff = (controller) => controller.row.closest(".gui-row.disabled, .gui-section.disabled") !== null;
+
+// Without a step a slider takes a hundredth of its range, rounded down to a power of ten.
+function sliderStep(step, min, max, where) {
+  if (step === undefined) {
+    const range = Math.abs(max - min);
+    // A range with no width has no hundredth to take; any step keeps its one value.
+    return range > 0 && Number.isFinite(range) ? 10 ** Math.floor(Math.log10(range / 100)) : 1;
+  }
+  if (typeof step !== "number" || !(step > 0) || !Number.isFinite(step)) {
+    throw new TypeError(
+      `[guspira] ${where}: step must be a positive number, not ${JSON.stringify(step)} — ` +
+        `options go after it, or leave it out for a hundredth of the range`
+    );
+  }
+  return step;
+}
+
+const RANDOMIZE_HINT = "Click, or press Alt+R with the control focused, to randomize";
+
 let sectionId = 0;
+let labelId = 0;
 
 const optionValue = (opt) => (Array.isArray(opt) ? opt[0] : opt);
 const optionLabel = (opt) => (Array.isArray(opt) ? opt[1] : opt);
@@ -138,15 +203,37 @@ class Controller {
     this.row = row;
     this.el = null;
     this.labelEl = null;
-    this.randomize = null;
+    this._randomize = null;
     this._stops = [];
     this._destroyed = false;
   }
 
-  // Registers an effect owned by this row.
+  // The row's reroll: assign one to make the control randomizable, null to take it out.
+  get randomize() {
+    return this._randomize;
+  }
+
+  set randomize(fn) {
+    this._randomize = typeof fn === "function" ? fn : null;
+    const label = this.labelEl;
+    if (!label) return;
+    label.classList.toggle("gui-randomizable", !!this._randomize);
+    if (this._randomize && !label.title) label.title = RANDOMIZE_HINT;
+    else if (!this._randomize && label.title === RANDOMIZE_HINT) label.title = "";
+  }
+
+  // Registers an effect owned by this row. Untracked, so the row lives until destroy().
   bind(fn) {
-    this._stops.push(effect(fn));
+    this._stops.push(untrack(() => effect(fn)));
     return this;
+  }
+
+  // Names the widget after the row's label, for anything that is not looking at it.
+  labelled(el) {
+    if (!this.labelEl) return el;
+    if (!this.labelEl.id) this.labelEl.id = `gui-label-${++labelId}`;
+    el.setAttribute("aria-labelledby", this.labelEl.id);
+    return el;
   }
 
   onDestroy(fn) {
@@ -160,7 +247,7 @@ class Controller {
   }
 
   setDisabled(disabled) {
-    this.row.classList.toggle("disabled", !!disabled);
+    markDisabled(this.row, !!disabled);
     return this;
   }
 
@@ -282,15 +369,18 @@ class GUI {
     // Kept so destroy() can stop them — otherwise a torn-down panel stays subscribed to
     // its own signals and holds the whole detached DOM tree alive. Sketch galleries that
     // swap panels per sketch would accumulate one of these per switch.
-    this._stops = [
+    // Untracked for the same reason a row's are: the panel lives until destroy().
+    this._stops = untrack(() => [
       effect(() => {
         const expanded = this.rowsExpanded();
         this.rows.classList.toggle("visible", expanded);
+        // Folded away is out of the tab order too, not just out of sight.
+        this.rows.inert = !expanded;
         this.container.classList.toggle("collapsed", !expanded);
         titleEl.setAttribute("aria-expanded", String(expanded));
       }),
       effect(() => this._syncTabs(this._activeTab())),
-    ];
+    ]);
 
     el.append(this.container);
     if (opts.visible !== false) this.show();
@@ -341,10 +431,18 @@ class GUI {
     if (t !== -1) {
       this._tabs.splice(t, 1);
       this._tabs.forEach((tab, i) => (tab.index = i));
-      const active = Math.min(this._activeTab.peek(), this._tabs.length - 1);
+      // A tab removed ahead of the active one moves it down a place.
+      const was = this._activeTab.peek();
+      const active = Math.min(t < was ? was - 1 : was, this._tabs.length - 1);
       this._activeTab.set(Math.max(0, active));
       this._syncTabs();
     }
+    // What was being built into may have gone with it: fall back to what is still there.
+    const gone = (el) => el === controller.row || controller.row.contains(el);
+    if (gone(this._currentTab)) {
+      this._currentTab = this._tabs.length ? this._tabs[this._tabs.length - 1].panel : this.rows;
+    }
+    if (gone(this._current)) this._current = this._currentTab;
   }
 
   // Panel layout state (folded/expanded/active tab) — kept apart from app parameters, and
@@ -425,9 +523,10 @@ class GUI {
   // Choosing a tab is the only thing that records one, so the remembered tab is always a
   // deliberate choice rather than a side effect of building the panel.
   selectTab(index) {
-    this._activeTab.set(index);
     const tab = this._tabs[index];
-    if (tab) this._writeUIState("tab", tab.button.textContent);
+    if (!tab) return this;
+    this._activeTab.set(index);
+    this._writeUIState("tab", tab.button.textContent);
     return this;
   }
 
@@ -451,6 +550,8 @@ class GUI {
 
     const body = document.createElement("div");
     body.className = "gui-section-body";
+    body.setAttribute("role", "group");
+    body.setAttribute("aria-labelledby", title.id);
 
     section.append(title, body);
     this._currentTab.append(section);
@@ -458,7 +559,8 @@ class GUI {
 
     // Scoped by tab: two tabs are free to have a section of the same name, and without the
     // prefix they would share one fold state.
-    const tabName = this._tabs.length ? this._tabs[this._tabs.length - 1].button.textContent : "";
+    const tab = this._tabs.find((t) => t.panel === this._currentTab);
+    const tabName = tab ? tab.button.textContent : "";
     const stateKey = `section:${tabName}/${name}`;
     const open = signal(collapsible ? this._readUIState(stateKey, opts.open ?? true) : true);
     const controller = new Section(this, section, body, open);
@@ -479,6 +581,7 @@ class GUI {
       controller.bind(() => {
         const isOpen = open();
         section.classList.toggle("open", isOpen);
+        body.inert = !isOpen;
         title.setAttribute("aria-expanded", String(isOpen));
       });
     } else {
@@ -487,7 +590,7 @@ class GUI {
 
     // Sections take the same pair as rows, so a whole group can hide or grey out at once.
     if (visible) controller.bind(() => section.classList.toggle("gui-hidden", !visible()));
-    if (disabled) controller.bind(() => section.classList.toggle("disabled", !!disabled()));
+    if (disabled) controller.bind(() => markDisabled(section, !!disabled()));
 
     this._controllers.push(controller);
     return controller;
@@ -511,6 +614,11 @@ class GUI {
 
     this._current = container;
     if (target instanceof Tab) this._currentTab = target.panel;
+    // A section brings its tab along, so a section added from in here lands beside it.
+    if (target instanceof Section) {
+      const tab = this._tabs.find((t) => t.panel.contains(target.row));
+      this._currentTab = tab ? tab.panel : this.rows;
+    }
 
     if (!fn) return this;
     try {
@@ -539,34 +647,14 @@ class GUI {
     }
 
     const disabled = condition(opts.disabledWhen, opts.disabled);
-    if (disabled) controller.bind(() => row.classList.toggle("disabled", !!disabled()));
+    if (disabled) controller.bind(() => markDisabled(row, !!disabled()));
 
     const visible = condition(opts.visibleWhen, opts.visible);
     if (visible) controller.bind(() => row.classList.toggle("gui-hidden", !visible()));
 
-    this._current.append(row);
-    this._controllers.push(controller);
-    return controller;
-  }
-
-  // Clicking a control's label rolls a new value for it. `fn` does the rolling; wiring it
-  // here also enrolls the control in panel-wide randomisation.
-  _randomizable(controller, fn, opts) {
-    if (opts.randomizable === false) return;
-    controller.randomize = fn;
-    if (!controller.labelEl) return;
-    controller.labelEl.classList.add("gui-randomizable");
-    controller.labelEl.title = opts.title || "Click, or press Alt+R with the control focused, to randomize";
-
-    // Through `controller.randomize` rather than `fn`, so replacing it replaces every way of
-    // asking for a reroll. The default rolls across the whole declared range, which is not
-    // always the range worth landing in — a sketch that wants a narrower band assigns its own,
-    // and label-click, Alt+R and the panel button must then all agree about what it is.
-    // Guarded like randomizeAll(): clearing `randomize` back to null is how a sketch opts a
-    // control out after it was built, so the label and the shortcut have to go quiet as well
-    // — and the onBeforeRandomize hook should not fire for a roll that never happens.
-    const handler = () => {
-      if (!controller.randomize || controller.row.classList.contains("disabled")) return;
+    // A label click and Alt+R both run `controller.randomize` as it is at that moment.
+    const reroll = () => {
+      if (!controller.randomize || isOff(controller)) return;
       this._beforeRandomize();
       controller.randomize();
     };
@@ -574,19 +662,28 @@ class GUI {
     // Alt+R while anything in the row has focus. A tab stop per label would double the cost
     // of tabbing through a panel to reach the controls, which is the thing keyboard users
     // are actually there to do — so the reroll is a shortcut on the row instead.
-    const keys = (e) => {
-      if (e.key !== "r" && e.key !== "R") return;
-      if (!e.altKey || e.ctrlKey || e.metaKey) return;
+    row.addEventListener("keydown", (e) => {
+      // Option+R on a Mac types "®", so a key that is not a letter is matched by position.
+      const letter = /^[a-z]$/i.test(e.key);
+      if (letter ? e.key.toLowerCase() !== "r" : e.code !== "KeyR") return;
+      if (!e.altKey || e.ctrlKey || e.metaKey || !controller.randomize) return;
       e.preventDefault();
-      handler();
-    };
-
-    controller.labelEl.addEventListener("click", handler);
-    controller.row.addEventListener("keydown", keys);
-    controller.onDestroy(() => {
-      controller.labelEl.removeEventListener("click", handler);
-      controller.row.removeEventListener("keydown", keys);
+      reroll();
     });
+    if (controller.labelEl) controller.labelEl.addEventListener("click", reroll);
+
+    this._current.append(row);
+    // Added to a section that is already off: its control is too, once it has been built.
+    queueMicrotask(() => {
+      if (isOff(controller)) syncDisabled(row);
+    });
+    this._controllers.push(controller);
+    return controller;
+  }
+
+  // The built-in controls' way of taking `randomizable: false`.
+  _randomizable(controller, fn, opts) {
+    if (opts.randomizable !== false) controller.randomize = fn;
   }
 
   _beforeRandomize() {
@@ -603,11 +700,14 @@ class GUI {
       start = at + 1;
     }
     this._beforeRandomize();
-    this._controllers.slice(Math.max(0, start)).forEach((c) => {
-      // A disabled control is not the user's to change right now, which is the same reason
-      // clicking its label does nothing.
-      if (!c.randomize || c.row.classList.contains("disabled")) return;
-      c.randomize();
+    // One batch, so an effect reading several of these runs once for the whole reroll.
+    batch(() => {
+      this._controllers.slice(Math.max(0, start)).forEach((c) => {
+        // A disabled control is not the user's to change right now, which is the same reason
+        // clicking its label does nothing.
+        if (!c.randomize || isOff(c)) return;
+        c.randomize();
+      });
     });
     return this;
   }
@@ -646,7 +746,8 @@ class GUI {
     };
     controller = this.addButton(label, run, opts);
     if (opts.key !== null) {
-      const unbind = bindKey(opts.key || "KeyR", run);
+      // Held down it keeps rolling, which is half the point of a reroll key.
+      const unbind = bindKey(opts.key || "KeyR", run, { repeat: true });
       this._unbinds.push(unbind);
       controller.onDestroy(unbind);
     }
@@ -687,7 +788,7 @@ class GUI {
 
     this._randomizable(controller, () => {
       sig.set(randomBool());
-      opts.onChange && opts.onChange(sig());
+      opts.onChange && opts.onChange(targetOf(sig).peek());
     }, opts);
 
     const input = document.createElement("input");
@@ -699,7 +800,7 @@ class GUI {
     };
 
     controller.bind(() => (input.checked = targetOf(sig)()));
-    controller.row.append(input);
+    controller.row.append(controller.labelled(input));
     controller.el = input;
     controller.signal = sig;
     return controller;
@@ -713,7 +814,7 @@ class GUI {
 
     this._randomizable(controller, () => {
       sig.set(optionValue(randomElement(controller.options)));
-      opts.onChange && opts.onChange(sig());
+      opts.onChange && opts.onChange(targetOf(sig).peek());
     }, opts);
 
     const select = document.createElement("select");
@@ -753,14 +854,16 @@ class GUI {
       if (optionValues.has(v)) select.value = v;
     });
 
-    controller.row.append(select);
+    controller.row.append(controller.labelled(select));
     controller.el = select;
     controller.signal = sig;
     return controller;
   }
 
+  // `step` may be left out, for a hundredth of the range.
   addSlider(label, value, min, max, step, a) {
     const opts = readOptions(a);
+    step = sliderStep(step, min, max, "addSlider");
     const sig = toSignal(value);
     const curve = normalizeCurve(opts.curve);
     assertCurveRange(curve, min, max, "addSlider");
@@ -771,7 +874,7 @@ class GUI {
     // Rolling the track position instead respects the curve that was asked for.
     this._randomizable(controller, () => {
       sig.set(snap(curveToValue(random(), min, max, curve), step, min, max));
-      opts.onChange && opts.onChange(sig());
+      opts.onChange && opts.onChange(targetOf(sig).peek());
     }, opts);
 
     const wrapper = document.createElement("div");
@@ -804,7 +907,7 @@ class GUI {
       const editor = document.createElement("input");
       editor.type = "text";
       editor.className = "gui-slider-edit";
-      editor.value = formatFloat(targetOf(sig).peek(), step);
+      editor.value = formatFloat(targetOf(sig).peek(), step, min);
       valDisplay.replaceWith(editor);
       editor.focus();
       editor.select();
@@ -812,7 +915,7 @@ class GUI {
       // Enter commits and puts the span back, which blurs the editor and would run this a
       // second time on a node that is no longer in the document.
       let committed = false;
-      const commit = (accept) => {
+      const commit = (accept, byKey) => {
         if (committed) return;
         committed = true;
         editor.onblur = null;
@@ -826,12 +929,14 @@ class GUI {
         }
         editor.replaceWith(valDisplay);
         delete valDisplay.dataset.editing;
+        // The editor took the focus with it; a key press hands it back to the slider.
+        if (byKey) input.focus();
       };
 
-      editor.onblur = () => commit(true);
+      editor.onblur = () => commit(true, false);
       editor.onkeydown = (e) => {
-        if (e.key === "Enter") commit(true);
-        else if (e.key === "Escape") commit(false);
+        if (e.key === "Enter") commit(true, true);
+        else if (e.key === "Escape") commit(false, true);
       };
     };
     valDisplay.addEventListener("click", startEditing);
@@ -845,10 +950,10 @@ class GUI {
     controller.bind(() => {
       const v = targetOf(sig)();
       input.value = v;
-      valDisplay.textContent = formatFloat(v, step);
+      valDisplay.textContent = formatFloat(v, step, min);
     });
 
-    wrapper.append(input, valDisplay);
+    wrapper.append(controller.labelled(input), valDisplay);
     controller.row.append(wrapper);
     controller.el = input;
     controller.signal = sig;
@@ -858,6 +963,7 @@ class GUI {
   // Two handles over one range; the signal holds [min, max].
   addRangeSlider(label, value, min, max, step, a) {
     const opts = readOptions(a);
+    step = sliderStep(step, min, max, "addRangeSlider");
     const sig = toSignal(value);
     const curve = normalizeCurve(opts.curve);
     assertCurveRange(curve, min, max, "addRangeSlider");
@@ -870,7 +976,7 @@ class GUI {
       const lo = snap(curveToValue(Math.min(first, second), min, max, curve), step, min, max);
       const hi = snap(curveToValue(Math.max(first, second), min, max, curve), step, min, max);
       sig.set([lo, hi]);
-      opts.onChange && opts.onChange(sig());
+      opts.onChange && opts.onChange(targetOf(sig).peek());
     }, opts);
 
     const wrapper = document.createElement("div");
@@ -886,7 +992,7 @@ class GUI {
     input.oninput = () => {
       const [lo, hi] = input.value;
       sig.set([parseFloat(lo), parseFloat(hi)]);
-      opts.onChange && opts.onChange(sig());
+      opts.onChange && opts.onChange(targetOf(sig).peek());
     };
 
     const valDisplay = document.createElement("span");
@@ -895,10 +1001,10 @@ class GUI {
     controller.bind(() => {
       const [lo, hi] = targetOf(sig)();
       input.value = [lo, hi];
-      valDisplay.textContent = composeRangeValue(lo, hi, step);
+      valDisplay.textContent = composeRangeValue(lo, hi, step, min);
     });
 
-    wrapper.append(input, valDisplay);
+    wrapper.append(controller.labelled(input), valDisplay);
     controller.row.append(wrapper);
     controller.el = input;
     controller.signal = sig;
@@ -918,7 +1024,7 @@ class GUI {
     // than dropping a hex string into an array.
     this._randomizable(controller, () => {
       sig.set(codec.fromHex(randomHexColor(), targetOf(sig).peek()));
-      opts.onChange && opts.onChange(sig());
+      opts.onChange && opts.onChange(targetOf(sig).peek());
     }, opts);
 
     const input = document.createElement("input");
@@ -935,7 +1041,7 @@ class GUI {
     // Display only — this never writes back, so a value richer than 8-bit sRGB keeps all of it
     // until somebody actually picks from the swatch.
     controller.bind(() => (input.value = codec.toHex(targetOf(sig)())));
-    controller.row.append(input);
+    controller.row.append(controller.labelled(input));
     controller.el = input;
     controller.signal = sig;
     return controller;
@@ -956,13 +1062,15 @@ class GUI {
     };
 
     // Skipped while the field has focus, so a value arriving mid-typing can't move the
-    // caret out from under the user.
+    // caret out from under the user — and caught up when the focus leaves.
+    const show = () => (input.value = targetOf(sig).peek() ?? "");
     controller.bind(() => {
-      const v = targetOf(sig)();
-      if (document.activeElement !== input) input.value = v;
+      targetOf(sig)();
+      if (document.activeElement !== input) show();
     });
+    input.addEventListener("blur", show);
 
-    controller.row.append(input);
+    controller.row.append(controller.labelled(input));
     controller.el = input;
     controller.signal = sig;
     return controller;
@@ -983,11 +1091,16 @@ class GUI {
       sig.set(v);
       opts.onChange && opts.onChange(v);
     };
+    // A typed value is held to the same range and grid as a dragged one.
+    const constrain = (v) =>
+      opts.step === undefined
+        ? Math.min(opts.max ?? Infinity, Math.max(opts.min ?? -Infinity, v))
+        : snap(v, opts.step, opts.min ?? -Infinity, opts.max ?? Infinity);
 
     input.oninput = () => {
       const v = parseFloat(input.value);
       if (!isFinite(v)) return;
-      commit(v);
+      commit(constrain(v));
     };
 
     if (opts.scrub !== false) {
@@ -1001,12 +1114,15 @@ class GUI {
       );
     }
 
+    // Once focus leaves, the field shows what was stored rather than what was typed.
+    const show = () => (input.value = targetOf(sig).peek());
     controller.bind(() => {
-      const v = targetOf(sig)();
-      if (document.activeElement !== input) input.value = v;
+      targetOf(sig)();
+      if (document.activeElement !== input) show();
     });
+    input.addEventListener("blur", show);
 
-    controller.row.append(input);
+    controller.row.append(controller.labelled(input));
     controller.el = input;
     controller.signal = sig;
     return controller;
@@ -1086,15 +1202,19 @@ class GUI {
       return input;
     });
 
+    const show = (input, i) => {
+      const v = targetOf(sig).peek();
+      const step = per(opts.step, i);
+      input.value = step === undefined ? v[i] : formatFloat(v[i], step, per(opts.min, i));
+    };
     controller.bind(() => {
-      const v = targetOf(sig)();
+      targetOf(sig)();
       inputs.forEach((input, i) => {
         // Never while it is being typed into, or the caret jumps to the end mid-number.
-        if (document.activeElement === input) return;
-        const step = per(opts.step, i);
-        input.value = step === undefined ? v[i] : formatFloat(v[i], step);
+        if (document.activeElement !== input) show(input, i);
       });
     });
+    inputs.forEach((input, i) => input.addEventListener("blur", () => show(input, i)));
 
     // Without a stated range there is nothing to roll within, so the reroll uses the same
     // -1..1 a normalised vector lives in. Give min/max and it uses those instead.
@@ -1182,11 +1302,15 @@ class GUI {
     const enabled = () => !controller.row.classList.contains("disabled");
 
     pad.addEventListener("pointerdown", (e) => {
-      if (!enabled()) return;
+      if (e.button !== 0 || !enabled()) return;
       // Captured, so a drag that leaves the pad keeps arriving here. That is also why there
-      // is nothing on window to unregister when the row is destroyed.
-      pad.setPointerCapture(e.pointerId);
-      pad.focus();
+      // is nothing on window to unregister when the row is destroyed. A synthetic event has
+      // no pointer to capture.
+      try {
+        pad.setPointerCapture(e.pointerId);
+      } catch {}
+      // Without scrolling, or the panel moves under the pointer and the value lands elsewhere.
+      pad.focus({ preventScroll: true });
       writeFromPointer(e);
     });
     pad.addEventListener("pointermove", (e) => {
@@ -1250,8 +1374,9 @@ class GUI {
       button.title = String(optionLabel(option));
       button.setAttribute("role", "radio");
       button.onclick = () => {
+        if (optionValue(option) === targetOf(sig).peek()) return;
         sig.set(optionValue(option));
-        opts.onChange && opts.onChange(sig());
+        opts.onChange && opts.onChange(targetOf(sig).peek());
       };
       group.append(button);
       return { button, value: optionValue(option) };
@@ -1265,9 +1390,12 @@ class GUI {
       if (!step || controller.row.classList.contains("disabled")) return;
       e.preventDefault();
       const at = segments.findIndex((segment) => segment.value === targetOf(sig).peek());
-      const next = segments[(at + step + segments.length) % segments.length];
+      // With nothing selected the arrows start from the end they point away from.
+      const from = at === -1 && step < 0 ? 0 : at;
+      const next = segments[(from + step + segments.length) % segments.length];
+      if (next.value === targetOf(sig).peek()) return;
       sig.set(next.value);
-      opts.onChange && opts.onChange(sig());
+      opts.onChange && opts.onChange(targetOf(sig).peek());
       next.button.focus();
     });
 
@@ -1289,7 +1417,7 @@ class GUI {
       controller,
       () => {
         sig.set(optionValue(randomElement(options)));
-        opts.onChange && opts.onChange(sig());
+        opts.onChange && opts.onChange(targetOf(sig).peek());
       },
       opts
     );
@@ -1323,13 +1451,15 @@ class GUI {
       opts.onChange && opts.onChange(area.value);
     };
 
+    const show = () => (area.value = targetOf(sig).peek() ?? "");
     controller.bind(() => {
-      const v = targetOf(sig)();
+      targetOf(sig)();
       // Never while it is being typed into, or the caret jumps to the end on every keystroke.
-      if (document.activeElement !== area) area.value = v ?? "";
+      if (document.activeElement !== area) show();
     });
+    area.addEventListener("blur", show);
 
-    controller.row.append(head, area);
+    controller.row.append(head, controller.labelled(area));
     controller.el = area;
     controller.signal = sig;
     return controller;
@@ -1369,8 +1499,8 @@ class GUI {
     if (opts.samples !== undefined) graph.samples = opts.samples;
     const read =
       sources.length > 1
-        ? () => sources.map((sig) => targetOf(sig).peek())
-        : () => targetOf(sources[0]).peek();
+        ? () => sources.map((sig) => sig.peek())
+        : () => sources[0].peek();
 
     // Paused, the source declines rather than the row stopping: the graph keeps its history
     // instead of scrolling a held value across it, which is the whole reason to pause — the
@@ -1470,8 +1600,8 @@ class GUI {
   }
 
   // Free-form HTML inside a row — a description, a legend, a link.
-  addText(html) {
-    const controller = this.createRow();
+  addText(html, opts = {}) {
+    const controller = this.createRow(null, opts);
     const content = document.createElement("div");
     content.className = "gui-text";
     content.innerHTML = html;
@@ -1480,8 +1610,8 @@ class GUI {
     return controller;
   }
 
-  addSeparator() {
-    const controller = this.createRow();
+  addSeparator(opts = {}) {
+    const controller = this.createRow(null, opts);
     const line = document.createElement("div");
     line.className = "gui-separator";
     controller.row.append(line);
@@ -1504,13 +1634,16 @@ class GUI {
   addPresets(store, opts = {}) {
     const created = {};
 
-    if (opts.builtin !== false && store.builtinNames().length) {
+    // The first name is the "custom" entry, so on its own it is a picker of nothing.
+    if (opts.builtin !== false && store.builtinNames().length > 1) {
       const names = store.builtinNames();
       // Mirrors store.current rather than binding to it directly: loading a *saved* preset
       // sets a name this picker has no option for, and the picker should fall back to the
       // custom entry instead of going blank.
       const pick = signal(names.includes(store.current.peek()) ? store.current.peek() : names[0]);
+      // Out of panel-wide rerolls: rolling it would apply a whole preset over the roll.
       created.builtin = this.addSelect(opts.label || "Preset", pick, names, {
+        randomizable: false,
         onChange: (name) => store.apply(name),
       });
       created.builtin.bind(() =>
@@ -1547,7 +1680,7 @@ class GUI {
     refresh();
 
     created.load = attach(created.saved, "Load", "Load the selected preset", () => {
-      if (selected()) store.apply(selected());
+      if (selected()) store.load(selected());
     });
     created.remove = attach(created.saved, "✕", "Delete the selected preset", () => {
       if (!selected()) return;
@@ -1569,7 +1702,7 @@ class GUI {
     const importFile = (file) =>
       store
         .importFile(file)
-        .then(() => refresh())
+        .then(() => refresh(store.current.peek()))
         .catch((e) => {
           console.warn("[guspira] could not import preset:", e);
           if (opts.onImportError) opts.onImportError(e);
@@ -1589,7 +1722,11 @@ class GUI {
       {
         label: "Export",
         title: "Download the current values as JSON",
-        onClick: () => store.exportFile(name().trim() || selected() || "preset"),
+        onClick: () => {
+          const current = store.current.peek();
+          const fallback = store.userNames().includes(current) ? current : "preset";
+          store.exportFile(name().trim() || fallback, store.snapshot());
+        },
       },
       { label: "Import", title: "Load values from a JSON file", onClick: () => fileInput.click() },
     ]);

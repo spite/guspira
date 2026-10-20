@@ -13,6 +13,7 @@ import { createStats } from "../src/stats.js";
 import { createPresetStore, copyText } from "../src/presets.js";
 import { signal, effect, frame, easings } from "../src/reactive.js";
 import { hexToRgb } from "../src/color.js";
+import { bindKey } from "../src/keyboard.js";
 
 const DEFAULTS = {
   // field
@@ -105,7 +106,8 @@ const presets = createPresetStore(params, {
 // piece of bookkeeping that genuinely depends on all of them.
 let settling = true;
 effect(() => {
-  params.$keys.forEach((key) => params[key]());
+  // Targets, not values: a preset travelling into place is not somebody editing it.
+  params.$keys.forEach((key) => params[key].target());
   if (settling) {
     settling = false;
     return;
@@ -375,7 +377,7 @@ function render(now) {
   uniformTimer.start();
 
   // Uniforms are cheap enough to push every frame, so they are read straight off the
-  // signals with peek() — no subscription, no bookkeeping.
+  // signals. Nothing is subscribed, because no effect is running here.
   const u = uniforms;
   gl.uniform2f(u.uRes, canvas.width, canvas.height);
   gl.uniform1f(u.uTime, simTime);
@@ -440,6 +442,7 @@ const gui = new GUI("Warp field", document.querySelector("#gui-container"), {
 });
 
 gui.addSelect("Preset", presets.current, presets.builtinNames(), {
+  randomizable: false, // a reroll should roll the look, not pick a preset over it
   onChange: (name) => {
     // The write below re-marks it custom through the effect above, so the name is restored
     // after the batch settles.
@@ -547,11 +550,8 @@ gui.addButton("Reset to defaults", () => {
   presets.markCustom();
 });
 
-addEventListener("keydown", (e) => {
-  if (e.code !== "Space" || ["INPUT", "SELECT", "TEXTAREA"].includes(e.target.tagName)) return;
-  e.preventDefault();
-  params.paused.update((v) => !v);
-});
+// bindKey stays out of the way of a field being typed in and of a button Space would press.
+bindKey("Space", () => params.paused.update((v) => !v), { preventDefault: true });
 
 if (!gl) {
   note.set("this browser has no WebGL2");

@@ -7,9 +7,15 @@ export function logger(selector, limit = 60) {
   return (message) => {
     lines.unshift(message);
     if (lines.length > limit) lines.length = limit;
-    el.innerHTML = lines
-      .map((line, i) => `<div${i === 0 ? ' class="new"' : ""}>${line}</div>`)
-      .join("");
+    // As text: a line may carry a file name or a preset name somebody else chose.
+    el.replaceChildren(
+      ...lines.map((line, i) => {
+        const row = document.createElement("div");
+        if (i === 0) row.className = "new";
+        row.textContent = line;
+        return row;
+      })
+    );
   };
 }
 

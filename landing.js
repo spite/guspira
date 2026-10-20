@@ -194,6 +194,10 @@ import { createPresetStore } from "./src/presets.js";
     g.addSelect("Shape", signal("ring"), ["ring", "grid", "spiral"])
   );
 
+  entry('gui.addSegmented("Blend", blend, ["over", "add", "screen"]);', (g) =>
+    g.addSegmented("Blend", signal("add"), ["over", "add", "screen"])
+  );
+
   entry('gui.addCheckbox("Trails", trails);', (g) => g.addCheckbox("Trails", signal(true)));
 
   entry('gui.addColor("Tint", tint);', (g) => g.addColor("Tint", signal("#ffb347")));
@@ -208,6 +212,10 @@ import { createPresetStore } from "./src/presets.js";
 
   entry('gui.addTextInput("Name", name);', (g) =>
     g.addTextInput("Name", signal("guspira"), { placeholder: "untitled" })
+  );
+
+  entry('gui.addTextArea("Notes", notes, { rows: 2 });', (g) =>
+    g.addTextArea("Notes", signal("Multi-line text,\nbound like the rest."), { rows: 2 })
   );
 
   entry('gui.addNumber("Seed", seed, { step: 1 });', (g) =>

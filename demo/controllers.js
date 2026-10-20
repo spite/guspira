@@ -12,6 +12,8 @@ const gui = new GUI("Controllers", document.querySelector("#gui-container"));
 // --- a row that is added and removed at runtime --------------------------------------
 const layersSection = gui.addSection("Layers");
 const layers = [];
+// The list itself is a plain array, so adding and removing bump this for the readout to see.
+const changed = signal(0);
 
 const addLayer = () => {
   const opacity = signal(Math.round(Math.random() * 100) / 100);
@@ -22,7 +24,7 @@ const addLayer = () => {
   const controller = gui.into(layersSection, () => gui.addSlider(`Layer ${n}`, opacity, 0, 1, 0.01));
   layers.push(controller);
   log(`${stamp()} added Layer ${n}`);
-  update();
+  changed.update((v) => v + 1);
 };
 
 const removeLayer = () => {
@@ -32,7 +34,7 @@ const removeLayer = () => {
   // subscribed to its signal, and the subscription keeps the detached row alive.
   controller.destroy();
   log(`${stamp()} destroyed a layer — its effects stopped too`);
-  update();
+  changed.update((v) => v + 1);
 };
 
 gui.addButton("Add layer", addLayer);
@@ -40,7 +42,7 @@ gui.addButton("Remove last", removeLayer);
 gui.addButton("Remove all", () => {
   while (layers.length) layers.pop().destroy();
   log(`${stamp()} cleared every layer`);
-  update();
+  changed.update((v) => v + 1);
 });
 
 // --- handles on a control's own DOM ----------------------------------------------------
@@ -79,10 +81,10 @@ gui.addButton("Add an option", () => {
 // --- addElement: anything at all, wrapped in a row ---------------------------------------
 gui.addSection("Custom widget");
 const bar = document.createElement("div");
-bar.style.cssText =
-  "flex:0 0 calc(100% - 140px);height:10px;border-radius:5px;background:#3e3e3e;overflow:hidden";
+bar.className = "gui-control"; // the control column, whatever the label width is
+bar.style.cssText = "height:10px;border-radius:5px;background:var(--gui-field-bg);overflow:hidden";
 const fill = document.createElement("div");
-fill.style.cssText = "height:100%;background:#ffb347";
+fill.style.cssText = "height:100%;background:var(--gui-fill)";
 bar.append(fill);
 effect(() => (fill.style.width = `${strength() * 100}%`));
 gui.addElement(bar, { label: "Strength" });
@@ -90,19 +92,23 @@ gui.addElement(bar, { label: "Strength" });
 // --- tearing the whole panel down ---------------------------------------------------------
 gui.addSection("Teardown");
 gui.addButton("Destroy this panel", () => {
+  stopReadout();
   gui.destroy(); // every row, every effect, every key binding, and the DOM
   log(`${stamp()} gui.destroy() — panel gone, nothing left subscribed`);
   show({ "rows still registered": 0, note: "reload the page to build it again" });
 });
 
-function update() {
+addLayer();
+addLayer();
+
+// An effect, so the readout follows a layer being dragged as well as one being added.
+const stopReadout = effect(() => {
+  changed();
   show({
     "layer rows": layers.length,
     "controllers registered": gui._controllers.length,
     "layer values": layers.map((c) => c.signal()),
   });
-}
+});
 
-addLayer();
-addLayer();
 log(`${stamp()} ready`);

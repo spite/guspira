@@ -28,6 +28,11 @@ let batchDepth = 0;
 const pending = new Set();
 const queue = [];
 let queueIndex = 0;
+// Computeds flagged out of date during the current pass.
+const marked = [];
+// The runaway guard counts repeats of one effect in a pass, not the size of the pass.
+let passId = 0;
+const MAX_RUNS_PER_PASS = 100000;
 
 class ReactiveEffect {
   constructor(fn, scheduler) {
@@ -39,6 +44,13 @@ class ReactiveEffect {
     this.dirty = false;
     this.cleanupFn = null;
     this.children = null;
+    // Set on a computed's effect: the readers of its value, and whether that value is out of date.
+    this.downstream = null;
+    this.stale = false;
+    // Takes the effect back out of the queue it is waiting in, when it has one.
+    this.unschedule = null;
+    this.pass = 0;
+    this.passRuns = 0;
     // An effect born while another one is running belongs to it, and is disposed when the
     // parent re-runs or stops — the same lifetime its cleanup function gets. Without this,
     // an effect that creates effects starts a fresh one on every pass, never disposes the
@@ -59,8 +71,16 @@ class ReactiveEffect {
     else this.run();
   }
 
+  // A run already waiting in a queue is taken out and remembered as a change to catch up on.
   pause() {
     this.paused = true;
+    if (this.unschedule && this.unschedule(this)) this.dirty = true;
+  }
+
+  // What a queue calls when the effect's turn comes.
+  runQueued() {
+    if (this.paused) this.dirty = true;
+    else this.run();
   }
 
   // Catches up immediately rather than through the scheduler: resuming is itself the moment
@@ -91,6 +111,8 @@ class ReactiveEffect {
       return result;
     } finally {
       activeEffect = prev;
+      // Stopped from inside its own run: what it set up after that point goes too.
+      if (!this.active) this.dispose();
     }
   }
 
@@ -116,17 +138,22 @@ class ReactiveEffect {
     children.forEach((child) => child.stop());
   }
 
-  stop() {
-    if (!this.active) return;
+  dispose() {
     this.stopChildren();
     this.runCleanup();
     this.cleanup();
+  }
+
+  stop() {
+    if (!this.active) return;
     this.active = false;
+    if (this.unschedule) this.unschedule(this);
+    this.dispose();
   }
 }
 
 function track(subscribers) {
-  if (activeEffect) {
+  if (activeEffect && activeEffect.active) {
     subscribers.add(activeEffect);
     activeEffect.deps.add(subscribers);
   }
@@ -134,8 +161,8 @@ function track(subscribers) {
 
 // Reports an effect that threw without letting it take the rest of the pass with it. One
 // broken control must not stop every other control bound to the same signal from updating.
-function reportError(error) {
-  if (typeof console !== "undefined") console.error("[guspira] effect threw:", error);
+function reportError(error, what = "effect threw") {
+  if (typeof console !== "undefined") console.error(`[guspira] ${what}:`, error);
 }
 
 // Drains the queue one at a time rather than snapshotting it. Because it is a Set, an effect
@@ -143,25 +170,31 @@ function reportError(error) {
 // what stops a value and something derived from it running the same effect twice.
 function drain() {
   batchDepth++; // writes made by these effects join this pass instead of starting their own
+  passId++;
   try {
-    let guard = 0;
     // Walked with an index rather than by lifting entries out of the Set: taking the first
     // entry means building a fresh iterator that has to step over everything already removed,
     // so draining n effects would cost O(n²). Effects woken part-way through are appended and
     // reached by the same loop, which keeps the order a single queue gives — an effect still
     // waiting is never queued a second time, so it runs once however many paths reach it.
     while (queueIndex < queue.length) {
-      if (++guard > 100000) {
+      const effect = queue[queueIndex++];
+      // Dropped from the waiting set before it runs, so an effect that wakes itself queues
+      // again rather than being silently swallowed.
+      pending.delete(effect);
+      // A computed that a reader already asked for is up to date.
+      if (effect.downstream && !effect.stale) continue;
+      if (effect.pass !== passId) {
+        effect.pass = passId;
+        effect.passRuns = 0;
+      }
+      if (++effect.passRuns > MAX_RUNS_PER_PASS) {
         reset();
         throw new Error(
           "[guspira] reactive update never settled — an effect is very likely writing a " +
             "signal it also reads. Use peek() to read without subscribing, or untrack()."
         );
       }
-      const effect = queue[queueIndex++];
-      // Dropped from the waiting set before it runs, so an effect that wakes itself queues
-      // again rather than being silently swallowed.
-      pending.delete(effect);
       try {
         effect.notify();
       } catch (error) {
@@ -180,6 +213,23 @@ function reset() {
   pending.clear();
   queue.length = 0;
   queueIndex = 0;
+  // A flag still up was a false alarm: nothing that computed reads actually changed.
+  for (const computation of marked) computation.stale = false;
+  marked.length = 0;
+}
+
+// Flags a computed and everything derived from it, ahead of the queue reaching them.
+function markStale(computation) {
+  const stack = [computation];
+  while (stack.length) {
+    const next = stack.pop();
+    if (next.stale) continue;
+    next.stale = true;
+    marked.push(next);
+    next.downstream.forEach((reader) => {
+      if (reader.downstream && !reader.stale) stack.push(reader);
+    });
+  }
 }
 
 function trigger(subscribers) {
@@ -189,6 +239,7 @@ function trigger(subscribers) {
     // Only adds to the queue, so there is nothing to disturb by iterating the live set, and
     // no copy to allocate.
     subscribers.forEach((effect) => {
+      if (effect.downstream) markStale(effect);
       if (pending.has(effect)) return;
       pending.add(effect);
       queue.push(effect);
@@ -210,7 +261,8 @@ function same(a, b) {
   return false;
 }
 
-export function signal(initialValue) {
+// The signal, and the set of effects reading it — which a computed needs a hold of.
+function createSignal(initialValue) {
   let value = initialValue;
   const subscribers = new Set();
 
@@ -239,19 +291,43 @@ export function signal(initialValue) {
   // reads this rather than the value.
   sig.target = sig;
 
-  return sig;
+  return { sig, subscribers };
+}
+
+export function signal(initialValue) {
+  return createSignal(initialValue).sig;
 }
 
 export function computed(fn) {
   // A signal written by an effect. signal.set already compares before notifying, so a
   // recomputation that lands on the same value costs its readers nothing — there is no
   // second copy of the track/trigger machinery here.
-  const value = signal(undefined);
-  const computation = new ReactiveEffect(() => value.set(fn()));
+  const { sig: value, subscribers } = createSignal(undefined);
+  const computation = new ReactiveEffect(() => {
+    computation.stale = false;
+    value.set(fn());
+  });
+  computation.downstream = subscribers;
   computation.run();
 
-  const computedSignal = () => value();
-  computedSignal.peek = value.peek;
+  // Out of date and not yet reached by the queue: recomputed for whoever is asking.
+  const refresh = () => {
+    if (!computation.stale || !computation.active) return;
+    try {
+      computation.run();
+    } catch (error) {
+      reportError(error);
+    }
+  };
+
+  const computedSignal = () => {
+    refresh();
+    return value();
+  };
+  computedSignal.peek = () => {
+    refresh();
+    return value.peek();
+  };
   computedSignal.isSignal = true;
   computedSignal.stop = () => computation.stop();
 
@@ -287,7 +363,7 @@ export function createScheduler(driver = null) {
     queue.clear();
     for (const job of jobs) {
       try {
-        job.run();
+        job.runQueued();
       } catch (error) {
         reportError(error);
       }
@@ -302,6 +378,8 @@ export function createScheduler(driver = null) {
 
   return {
     schedule,
+    // Takes a job back out, for an effect stopped or paused while it waited. True if it was in.
+    unschedule: (job) => queue.delete(job),
     flush,
     get size() {
       return queue.size;
@@ -367,6 +445,9 @@ export function effect(fn, options = {}) {
       : (job) => scheduler.schedule(job);
 
   const e = new ReactiveEffect(fn, enqueue);
+  if (scheduler && typeof scheduler.unschedule === "function") {
+    e.unschedule = (job) => scheduler.unschedule(job);
+  }
   if (!lazy) e.run();
 
   const handle = () => e.stop();
@@ -415,7 +496,7 @@ const lerpNumber = (from, to, t) => from + (to - from) * t;
 // can sit behind a control like anything else.
 //
 // Numbers by default. Pass `interpolate` — an (from, to, t) => value — and it will travel
-// between anything; src/color.js builds tweenedColor on exactly that.
+// between anything; createParams eases colours through mixColors on exactly that.
 export function tweened(initialValue, duration = 400, easing = (t) => t, interpolate = lerpNumber) {
   const value = signal(initialValue);
   // The destination is a signal of its own, so a control can subscribe to "what was set"
@@ -432,9 +513,10 @@ export function tweened(initialValue, duration = 400, easing = (t) => t, interpo
     startTime = null;
   };
 
+  // Timed from the write; a frame stamped just before it counts as zero progress.
   const tick = (time) => {
     if (startTime === null) startTime = time;
-    const progress = Math.min((time - startTime) / duration, 1);
+    const progress = Math.min(Math.max(0, time - startTime) / duration, 1);
     value.set(progress < 1 ? interpolate(from, to, easing(progress)) : to);
     if (progress < 1) frameId = rafSchedule(tick);
     else stopAnimation();
@@ -443,13 +525,19 @@ export function tweened(initialValue, duration = 400, easing = (t) => t, interpo
   const sig = () => value();
   sig.peek = value.peek;
   sig.isSignal = true;
-  sig.target = target;
+  // A view of the destination whose writes go through the tween.
+  const targetView = () => target();
+  targetView.peek = target.peek;
+  targetView.isSignal = true;
+  targetView.set = (newValue) => sig.set(newValue);
+  targetView.update = (updater) => sig.update(updater);
+  sig.target = targetView;
 
   sig.set = (newValue) => {
     // Only the default interpolator can say what a bad value is; a custom one was supplied
     // by someone who knows what they are travelling between.
     if (interpolate === lerpNumber && (typeof newValue !== "number" || !isFinite(newValue))) {
-      reportError(new Error(`tweened() interpolates numbers; got ${JSON.stringify(newValue)}`));
+      reportError(new Error(`tweened() interpolates numbers; got ${String(newValue)}`), "write refused");
       return;
     }
     if (newValue === to) return;
@@ -457,11 +545,16 @@ export function tweened(initialValue, duration = 400, easing = (t) => t, interpo
     from = value.peek();
     to = newValue;
     target.set(newValue);
-    if (duration === 0) value.set(to);
-    else frameId = rafSchedule(tick);
+    if (duration === 0) {
+      value.set(to);
+    } else {
+      startTime = now();
+      frameId = rafSchedule(tick);
+    }
   };
 
-  sig.update = (updater) => sig.set(updater(value.peek()));
+  // From the destination, not the value in flight: two updates in a row must add up.
+  sig.update = (updater) => sig.set(updater(target.peek()));
 
   sig.reset = (newValue) => {
     stopAnimation();

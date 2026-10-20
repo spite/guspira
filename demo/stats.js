@@ -96,6 +96,12 @@ gui.addSlider("Extra work per frame", params.extraWork, 0, 40, 1, {
 gui.addCheckbox("Motion blur", params.blur);
 gui.addCheckbox("Paused", params.paused);
 
+// The graph is an element in its own right. This one sits in the page, not the panel: give it
+// a `source` and it samples on its own clock. Returning undefined declines a sample, which is
+// all pausing is.
+document.querySelector("#standalone").source = () =>
+  params.paused.peek() ? undefined : frame.peek();
+
 // --- the sketch -----------------------------------------------------------------------------
 let points = [];
 const rebuild = (count) => {

@@ -2,7 +2,7 @@
 // inside, until the next one. With a storageKey the panel remembers its own layout.
 
 import GUI from "../src/gui.js";
-import { signal, effect } from "../src/reactive.js";
+import { signal } from "../src/reactive.js";
 import { readout, highlight } from "./shell.js";
 
 const show = readout("#state");
@@ -26,7 +26,7 @@ const gui = new GUI("Structure", document.querySelector("#gui-container"), {
 gui.addSelect("Field", params.field, ["curl", "attractor", "noise"]);
 
 const sections = [];
-gui.addTab("Motion");
+const motion = gui.addTab("Motion");
 sections.push(gui.addSection("Drive"));
 gui.addSlider("Speed", params.speed, 0, 2, 0.01);
 gui.addSlider("Scale", params.scale, 0.1, 4, 0.1);
@@ -47,13 +47,27 @@ gui.addSlider("Grain", params.grain, 0, 4, 0.1);
 // A section that is a plain heading — no folding.
 gui.addSection("Not collapsible", { collapsible: false });
 gui.addText("Passed <code>{ collapsible: false }</code>.");
+// endSection() steps back out: what follows sits in the tab itself, under no heading.
+gui.endSection();
+gui.addText("Added after <code>endSection()</code> — in the tab, outside every section.");
 
 gui.addTab("About");
 gui.addText(
   "Three tabs, built by calling <code>addTab</code> three times. Whichever one you leave open " +
     "is the one you get back after a reload."
 );
-gui.addButton("Jump to the first tab", () => gui.selectTab(0));
+// A tab's own handle selects it; gui.selectTab(index) does the same by position.
+gui.addButton("Jump to the first tab", () => motion.select());
+// into() adds to a tab or section long after it stopped being the one being built.
+let extras = 0;
+gui.addButton("Add a row to Drive", () => {
+  gui.into(sections[0], () => gui.addSlider(`Extra ${++extras}`, signal(0.5), 0, 1, 0.01));
+  gui.selectTab(0);
+});
+gui.addButton("Toggle the Drive section", () => {
+  sections[0].toggle();
+  motion.select();
+});
 gui.addButton("Fold every section", () => sections.forEach((s) => s.setOpen(false)));
 gui.addButton("Unfold every section", () => sections.forEach((s) => s.setOpen(true)));
 gui.addButton("Hide the panel for a second", () => {
@@ -90,7 +104,9 @@ gui.addSection("Attractor", {
 });
 
 sections.push(gui.addSection("Folded by default", { open: false }));
-gui.addSection("Not collapsible", { collapsible: false });`;
-highlight(document.querySelector("#code"));
+gui.addSection("Not collapsible", { collapsible: false });
+gui.endSection();                        // back out to the tab
 
-effect(() => params.field()); // keeps the conditional section live
+// later, from a button: add to a section built long ago
+gui.into(sections[0], () => gui.addSlider("Extra", extra, 0, 1, 0.01));`;
+highlight(document.querySelector("#code"));

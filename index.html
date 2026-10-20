@@ -364,6 +364,7 @@ gui.addSection("Manual", {
               Import from <code>guspira</code> to get everything at once, or from a subpath to take
               only the part you need. What npm installs is the source rather than a bundle, so your
               tooling sees the modules as they were written and drops the ones you never import.
+              TypeScript declarations come with it.
             </p>
             <ul>
               <li><b>guspira/reactive</b> — the signals alone: no DOM, runs in a worker or in node</li>
@@ -371,6 +372,7 @@ gui.addSection("Manual", {
               <li><b>guspira/params</b> · <b>guspira/presets</b> — state that survives a reload and travels in a link</li>
               <li><b>guspira/color</b> · <b>guspira/format</b> · <b>guspira/random</b> · <b>guspira/keyboard</b></li>
               <li><b>guspira/range-slider</b> — the two-handled element on its own</li>
+              <li><b>guspira/stats</b> · <b>guspira/stats-graph</b> · <b>guspira/curve</b></li>
             </ul>
           </div>
           <div>
@@ -401,8 +403,8 @@ effect(() =&gt; rebuild(count()));</pre>
         </p>
         <div class="codecard">
           <div class="bar"><i></i><i></i><i></i><span>index.html</span></div>
-          <pre class="code">&lt;link rel="stylesheet" href="https://unpkg.com/guspira@0.1.0/dist/guspira.min.css"&gt;
-&lt;script src="https://unpkg.com/guspira@0.1.0/dist/guspira.iife.min.js"&gt;&lt;/script&gt;
+          <pre class="code">&lt;link rel="stylesheet" href="https://unpkg.com/guspira@0.1.1/dist/guspira.min.css"&gt;
+&lt;script src="https://unpkg.com/guspira@0.1.1/dist/guspira.iife.min.js"&gt;&lt;/script&gt;
 
 &lt;script&gt;
   const { GUI, signal } = Guspira;
@@ -415,7 +417,7 @@ effect(() =&gt; rebuild(count()));</pre>
         <div class="codecard" style="margin-top: 1.25rem">
           <div class="bar"><i></i><i></i><i></i><span>…or as a module, no global</span></div>
           <pre class="code">&lt;script type="module"&gt;
-  import { GUI, signal } from "https://cdn.jsdelivr.net/npm/guspira@0.1.0/dist/guspira.min.js";
+  import { GUI, signal } from "https://cdn.jsdelivr.net/npm/guspira@0.1.1/dist/guspira.min.js";
 &lt;/script&gt;</pre>
         </div>
       </section>
@@ -446,6 +448,22 @@ effect(() =&gt; rebuild(count()));</pre>
               <span class="tag">Reference</span>
               <h3>Controls</h3>
               <p>Every control the panel ships, each beside the signal it is bound to.</p>
+            </div>
+          </a>
+          <a class="card" href="./demo/vector.html" style="--h: 343">
+            <div class="body">
+              <div class="ic"><svg viewBox="0 0 48 48"><path d="M8 40 24 8l16 32" /><circle cx="24" cy="8" r="3" /><path d="M8 40h32" /></svg></div>
+              <span class="tag">Multi-value</span>
+              <h3>Vectors &amp; pads</h3>
+              <p>Array signals: a row of axes, and an [x, y] you can drag.</p>
+            </div>
+          </a>
+          <a class="card" href="./demo/colour.html" style="--h: 18">
+            <div class="body">
+              <div class="ic"><svg viewBox="0 0 48 48"><path d="M24 6c8 10 12 16 12 22a12 12 0 0 1-24 0c0-6 4-12 12-22z" /></svg></div>
+              <span class="tag">Formats</span>
+              <h3>Colour</h3>
+              <p>One swatch writing hex, 0..1 triplets, bytes or a codec of your own — and mixing through OKLab.</p>
             </div>
           </a>
           <a class="card" href="./demo/options.html" style="--h: 150">
@@ -481,7 +499,7 @@ effect(() =&gt; rebuild(count()));</pre>
               <div class="ic"><svg viewBox="0 0 48 48"><path d="M14 8H8v32h6M34 8h6v32h-6M18 24h12M24 18v12" /></svg></div>
               <span class="tag">Custom</span>
               <h3>Extending</h3>
-              <p>A vector row and an XY pad built from scratch, behaving like built-ins.</p>
+              <p>A dial and a live graph built from scratch, behaving like built-ins.</p>
             </div>
           </a>
           <a class="card" href="./demo/theming.html" style="--h: 348">
@@ -519,6 +537,14 @@ effect(() =&gt; rebuild(count()));</pre>
               <span class="tag">Scheduling</span>
               <h3>Rendering</h3>
               <p>render() as an effect: draw only when something changed, where the loop says.</p>
+            </div>
+          </a>
+          <a class="card" href="./demo/stats.html" style="--h: 100">
+            <div class="body">
+              <div class="ic"><svg viewBox="0 0 48 48"><path d="M6 34l8-10 8 6 8-14 8 10" /><path d="M6 42h36" /></svg></div>
+              <span class="tag">Measuring</span>
+              <h3>Stats</h3>
+              <p>Counters after rStats, wired to signals — timers, framerate, and where a frame went.</p>
             </div>
           </a>
           <a class="card" href="./demo/persistence.html" style="--h: 190">

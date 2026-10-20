@@ -196,7 +196,6 @@ pre.code .k { color: var(--code-keyword); }
 pre.code .s { color: var(--code-string); }
 pre.code .fn { color: var(--code-fn); }
 pre.code .n { color: var(--code-number); }
-pre.code .hl { color: var(--accent-hot); }
 
 /* ---------- sections ---------- */
 
@@ -370,36 +369,6 @@ section {
   margin: 0;
   color: var(--dim);
   font-size: 13.5px;
-}
-
-/* chips */
-
-.chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.55rem;
-}
-
-.chip {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.5rem;
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 0.45rem 0.9rem;
-  font-size: 13.5px;
-}
-
-.chip b {
-  color: var(--fg);
-  font-family: ui-monospace, monospace;
-  font-size: 13px;
-}
-
-.chip span {
-  color: var(--dim);
-  font-size: 12.5px;
 }
 
 /* example cards */
@@ -710,10 +679,8 @@ footer a:hover {
    a floor of zero instead, and the code scrolls inside its own card, which it was already set
    up to do. */
 .pitch > *,
-.pitch.narrow > *,
 .grid > *,
 .pieces > *,
-.cells > *,
 .stage > *,
 main.demo > * {
   min-width: 0;
@@ -732,19 +699,10 @@ main.demo > * {
     font-size: clamp(2rem, 9vw, 3rem);
   }
 
-  .cta {
-    flex-wrap: wrap;
-  }
-
   /* The panel already fills its container, so it needs no width here — but its label column
      is a fixed 140px, which is over a third of a phone screen. The controls get the room. */
   .gui {
     --gui-label-width: 104px;
     --gui-padding: 14px;
-  }
-
-  /* Tables of any width scroll rather than stretching the page. */
-  .readout {
-    overflow-x: auto;
   }
 }

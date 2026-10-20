@@ -4,6 +4,7 @@
 // Anything genuinely not demonstrable goes in ALLOWED with the reason, so the exception is
 // a decision on the record rather than a gap nobody noticed.
 
+import { fileURLToPath } from "node:url";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
@@ -14,7 +15,7 @@ const ALLOWED = {
 };
 
 const read = (p) => readFileSync(p, "utf8");
-const root = new URL("..", import.meta.url).pathname;
+const root = fileURLToPath(new URL("..", import.meta.url));
 
 const examples = [
   ...readdirSync(join(root, "demo"))
@@ -32,7 +33,9 @@ const index = read(join(root, "src/index.js"));
 const guiCss = read(join(root, "css/gui.css"));
 const theming = read(join(root, "demo/theming.js"));
 
-const methods = [...gui.matchAll(/^ {2}([a-zA-Z][a-zA-Z0-9]*)\(/gm)]
+// The classes, from the first one down: helper functions above them are indented the same way.
+const classes = gui.slice(gui.search(/^class /m));
+const methods = [...classes.matchAll(/^ {2}([a-zA-Z][a-zA-Z0-9]*)\(/gm)]
   .map((m) => m[1])
   .filter((m) => m !== "constructor");
 
@@ -50,18 +53,21 @@ const OPTIONS = [
   "onBeforeRandomize", "migrate", "exclude", "url", "builtin", "lazy", "scheduler", "key",
   "axes", "invertY", "height", "scrub", "curve",
   "stacked", "samples", "over", "below", "average", "interval", "rows", "spellcheck",
-  "paused", "pausedWhen", "series", "interpolate",
+  "paused", "pausedWhen", "series", "interpolate", "repeat", "preventDefault",
 ];
 
 let failures = 0;
 // An option counts as demonstrated when a demo passes it — `curve: "log"` or curve="log" —
 // not when the word merely appears. Matching the bare word let `curve` pass on the sentence
 // "the curve the value is following" in a comment, which is exactly the false comfort this
-// suite exists to prevent. Everything else is matched as a call or an identifier.
+// suite exists to prevent. A method has to be called, and not on a classList: `toggle` used
+// to pass on classList.toggle(). An export is matched as an identifier.
 const usage = (kind, name) =>
   kind === "options"
     ? new RegExp(`\\b${name}\\s*:|\\b${name}=`)
-    : new RegExp(`\\b${name}\\b`);
+    : kind === "GUI methods"
+      ? new RegExp(`(?<!classList)\\.${name}\\(`)
+      : new RegExp(`\\b${name}\\b`);
 
 const check = (kind, names) => {
   const missing = names.filter((name) => !ALLOWED[name] && !usage(kind, name).test(examples));

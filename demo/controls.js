@@ -48,7 +48,13 @@ gui.addTextArea("Text area", state.notes, { rows: 3, placeholder: "notes…", sp
 gui.addSeparator();
 gui.addText("Read-only and actions.");
 gui.addMonitor("Monitor", clock, { format: (v) => `${v.toFixed(2)} s` });
+// Plots a signal over time — here the slider above, so dragging it draws.
+gui.addGraph("Graph", state.slider, { min: 0, max: 1, format: (v) => v.toFixed(2) });
 gui.addButton("Button", () => log(`${stamp()} button clicked`));
+gui.addButtons("Buttons", [
+  { label: "One", onClick: () => log(`${stamp()} first of a pair`) },
+  { label: "Two", onClick: () => log(`${stamp()} second of a pair`) },
+]);
 gui.addFileButton("File button", (file) => log(`${stamp()} picked ${file.name} (${file.size} bytes)`), {
   accept: "image/*,.json",
 });

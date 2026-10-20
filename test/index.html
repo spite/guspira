@@ -15,7 +15,8 @@
       import { createStats } from "../src/stats.js";
       import { createParams } from "../src/params.js";
       import { createPresetStore } from "../src/presets.js";
-      import { signal } from "../src/reactive.js";
+      import { signal, effect } from "../src/reactive.js";
+      import { bindKey } from "../src/keyboard.js";
 
       const lines = [];
       let failures = 0;
@@ -25,14 +26,16 @@
       };
       window.onerror = (m) => { lines.push("FAIL uncaught: " + m); failures++; };
 
-      // NOTE: this wipes localStorage for the origin it is served from. Keep it off the
-      // same host/port as a sketch whose settings you care about.
-      localStorage.clear();
+      // Only this suite's own keys: the page is linked from the site, and clearing the whole
+      // origin would take every other sketch's saved settings with it.
+      Object.keys(localStorage)
+        .filter((key) => /^t\d?(:|-|$)/.test(key))
+        .forEach((key) => localStorage.removeItem(key));
 
       const host = document.querySelector("#host");
       const DEFAULTS = { amount: 0.5, range: [0.2, 0.8], on: false, mode: "a", label: "x" };
       const params = createParams(DEFAULTS, { storageKey: "t" });
-      const gui = new GUI("Test", host, { storageKey: "t" });
+      const gui = new GUI("Test", host, { storageKey: "t", expanded: true });
 
       // --- slider: pointer drag ---------------------------------------------------
       const slider = gui.addSlider("Amount", params.amount, 0, 1, 0.01);
@@ -47,6 +50,12 @@
         window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
       };
       drag(0.25);
+      {
+        const held = params.amount();
+        el.shadowRoot.getElementById("container").dispatchEvent(
+          new PointerEvent("pointerdown", { clientX: rect.left + 2, clientY: rect.top + 10, button: 2, bubbles: true }));
+        check("a right-click does not move the slider", params.amount() === held && !el.isDragging);
+      }
       check("drag writes the signal", Math.abs(params.amount() - 0.25) < 0.03, `got ${params.amount()}`);
       const display = slider.row.querySelector(".gui-slider-val");
       check("display follows the drag", display.textContent === params.amount().toFixed(2), display.textContent);
@@ -207,6 +216,13 @@
       check("…and back again", blend() === "over");
       seg.el.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
       check("…wrapping round the ends", blend() === "screen");
+      let segChanges = 0;
+      const counted = gui.addSegmented("Counted", signal("a"), ["a", "b"], { onChange: () => segChanges++ });
+      const countedButtons = [...counted.el.querySelectorAll(".gui-segment")];
+      countedButtons[0].click();
+      check("clicking the active segment is not a change", segChanges === 0, String(segChanges));
+      countedButtons[1].click();
+      check("…while clicking another one is", segChanges === 1, String(segChanges));
       const pairSeg = gui.addSegmented("Pairs", signal("a"), [["a", "First"], ["b", "Second"]]);
       check("pair lists show their labels", pairSeg.el.querySelector(".gui-segment").textContent === "First");
       const segRolled = signal("over");
@@ -258,6 +274,18 @@
       stackEl.setAttribute("stacked", "");
       stackEl.push([2, 3, 5]);
       check("a stacked graph totals its series", stackEl.current === 10);
+      {
+        stackEl.style.cssText = "display:block;width:200px;height:40px";
+        host.append(stackEl);
+        for (let i = 0; i < 20; i++) stackEl.push([2, 3, 5]);
+        const realStyle = window.getComputedStyle;
+        let lookups = 0;
+        window.getComputedStyle = (...args) => (lookups++, realStyle(...args));
+        stackEl.draw();
+        window.getComputedStyle = realStyle;
+        stackEl.remove();
+        check("a stacked draw resolves its styles once, not per bar", lookups === 1, String(lookups));
+      }
 
       // pausing: the source declines, so the history holds instead of scrolling
       const heldGraph = document.createElement("stats-graph");
@@ -290,12 +318,12 @@
       check("a running graph samples", pausedRow.el.source() !== undefined);
       pauseFlag.set(true);
       check("pausedWhen makes the source decline", pausedRow.el.source() === undefined);
-      check("…and the row says it is heldGraph, not broken",
+      check("…and the row says it is held, not broken",
         pausedRow.el.parentElement.classList.contains("gui-graph-paused"));
       pauseFlag.set(false);
       check("unpausing resumes sampling", pausedRow.el.source() !== undefined);
-      check("…and drops the heldGraph look", !pausedRow.el.parentElement.classList.contains("gui-graph-paused"));
-      const alwaysHeld = gui.addGraph("Always heldGraph", pauseTimer, { paused: true });
+      check("…and drops the held look", !pausedRow.el.parentElement.classList.contains("gui-graph-paused"));
+      const alwaysHeld = gui.addGraph("Always held", pauseTimer, { paused: true });
       check("a constant `paused` works too", alwaysHeld.el.source() === undefined);
 
       // legend: names come from the counters, so a stacked graph labels itself
@@ -407,7 +435,7 @@
       // --- scrubbing a number field -------------------------------------------------
       const scrubDrag = (el, dx, extra = {}) => {
         const P = (type, x) =>
-          new PointerEvent(type, { clientX: x, button: 0, pointerId: 1, bubbles: true, ...extra });
+          new PointerEvent(type, { clientX: x, button: 0, buttons: 1, pointerId: 1, bubbles: true, ...extra });
         el.dispatchEvent(P("pointerdown", 100));
         el.dispatchEvent(P("pointermove", 100 + dx));
         el.dispatchEvent(P("pointerup", 100 + dx));
@@ -422,7 +450,7 @@
       scrubDrag(numRow.el, 999);
       check("a scrub clamps to max", scrubbed() === 100);
       scrubbed.set(42);
-      const tap = (type, x) => new PointerEvent(type, { clientX: x, button: 0, pointerId: 1, bubbles: true });
+      const tap = (type, x) => new PointerEvent(type, { clientX: x, button: 0, buttons: 1, pointerId: 1, bubbles: true });
       numRow.el.dispatchEvent(tap("pointerdown", 100));
       numRow.el.dispatchEvent(tap("pointermove", 101));
       numRow.el.dispatchEvent(tap("pointerup", 101));
@@ -432,6 +460,14 @@
       scrubDrag(numRow.el, 40);
       check("a field being edited is not hijacked", scrubbed() === 7);
       numRow.el.blur();
+      // released outside the field: no pointerup arrives, and a later hover must not scrub
+      scrubbed.set(30);
+      numRow.el.dispatchEvent(tap("pointerdown", 100));
+      numRow.el.dispatchEvent(
+        new PointerEvent("pointermove", { clientX: 160, buttons: 0, pointerId: 1, bubbles: true }));
+      check("a hover after a release elsewhere does not scrub", scrubbed() === 30, String(scrubbed()));
+      check("…or take focus", document.activeElement !== numRow.el);
+      check("…or leave the drag class behind", !document.body.classList.contains("gui-scrubbing"));
       const scrubVec = signal([0, 0, 0]);
       const scrubVecRow = gui.addVector("Scrubbable", scrubVec, { min: -10, max: 10, step: 0.1 });
       scrubDrag(scrubVecRow.inputs[1], 20);
@@ -545,6 +581,15 @@
       banded.labelEl.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       banded.row.dispatchEvent(new KeyboardEvent("keydown", { key: "r", altKey: true, bubbles: true }));
       check("clearing randomize silences the label and Alt+R", bandedSig() === 0.5, String(bandedSig()));
+      banded.randomize = () => bandedSig.set(0.75);
+      banded.row.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "®", code: "KeyR", altKey: true, bubbles: true }));
+      check("Alt+R works where Option+R types a symbol", bandedSig() === 0.75, String(bandedSig()));
+      bandedSig.set(0.5);
+      banded.row.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "p", code: "KeyR", altKey: true, bubbles: true }));
+      check("…but another letter on that key is left alone", bandedSig() === 0.5, String(bandedSig()));
+      banded.randomize = null;
 
       // …and the hook does not fire for a roll that never happens
       let hookRuns = 0;
@@ -563,9 +608,35 @@
       const dis = gui.addSlider("Disabled", signal(1), 0, 2, 0.1, { disabled: () => gate() });
       check("visibleWhen shows", !cond.row.classList.contains("gui-hidden"));
       check("disabled applies", dis.row.classList.contains("disabled"));
+      await Promise.resolve();
+      check("…to the keyboard as well as the pointer", dis.el.tabIndex === -1, String(dis.el.tabIndex));
+      check("…and is announced as unavailable rather than hidden",
+        dis.row.getAttribute("aria-disabled") === "true" && !dis.row.inert);
       gate.set(false);
+      await Promise.resolve();
       check("visibleWhen reacts", cond.row.classList.contains("gui-hidden"));
-      check("disabled reacts", !dis.row.classList.contains("disabled"));
+      check("disabled reacts",
+        !dis.row.classList.contains("disabled") && !dis.row.hasAttribute("aria-disabled") && dis.el.tabIndex === 0,
+        String(dis.el.tabIndex));
+
+      // a disabled section reaches its rows, and gives back only what it took
+      const sectionOff = signal(true);
+      const offSection = gui.addSection("Off section", { disabled: () => sectionOff() });
+      let sectionRow, sectionRowOff, sectionAppOff;
+      gui.into(offSection, () => {
+        sectionRow = gui.addCheckbox("Inner", signal(false));
+        sectionRowOff = gui.addCheckbox("Inner off", signal(false), { disabled: true });
+        sectionAppOff = gui.addCheckbox("App off", signal(false));
+      });
+      sectionAppOff.el.disabled = true;
+      await Promise.resolve();
+      check("a disabled section disables the controls in it", sectionRow.el.disabled === true);
+      sectionOff.set(false);
+      await Promise.resolve();
+      check("…and turning it on gives them back", sectionRow.el.disabled === false);
+      check("…but not to a row that is off on its own", sectionRowOff.el.disabled === true);
+      check("…nor to a control the app disabled itself", sectionAppOff.el.disabled === true);
+      offSection.destroy();
 
       // the two state options: either spelling, either kind of value
       const flag = signal(true);
@@ -635,6 +706,11 @@
       // --- params: persistence, apply, reset, query --------------------------------
       params.amount.set(0.42);
       params.$flush();
+      localStorage.setItem("t-bad", '"not an object"');
+      let survived = true;
+      try { createParams({ a: 1 }, { storageKey: "t-bad", url: ["a"] }).$stop(); } catch { survived = false; }
+      check("a stored value that is not an object is ignored", survived);
+      localStorage.removeItem("t-bad");
       check("params persist to storage", JSON.parse(localStorage.getItem("t")).amount === 0.42);
       const applied = params.$apply({ amount: 0.11, mode: "b", bogus: 1, on: "yes" });
       check("apply takes matching keys", params.amount() === 0.11 && params.mode() === "b");
@@ -707,7 +783,6 @@
       const sec = groupGui.addSection("Doomed");
       const inner = groupGui.addSlider("Inner", signal(1), 0, 2, 0.1);
       const innerSig = inner.signal;
-      const countBefore = groupGui._controllers.length;
       sec.destroy();
       check("section destroy removes its children", !inner.row.isConnected);
       check("…and unregisters them", groupGui._controllers.length === 0, String(groupGui._controllers.length));
@@ -723,12 +798,29 @@
       check("tabs re-index after a removal", tB.index === 0 && tC.index === 1, `${tB.index},${tC.index}`);
       tC.button.click();
       check("a re-indexed tab button still selects it", tC.panel.classList.contains("active"));
+      const tD = tabGui.addTab("D");
+      tB.destroy();
+      check("removing a tab before the active one keeps the active one", tC.panel.classList.contains("active"));
+      tC.destroy();
+      check("removing the active tab falls to a neighbour", tD.panel.classList.contains("active"));
 
       // the panel's own effects stop with it
       const stopGui = new GUI("Stops", host);
       stopGui.destroy();
+      const shownBefore = stopGui.rows.classList.contains("visible");
       stopGui.rowsExpanded.set(!stopGui.rowsExpanded());
-      check("panel effects stop on destroy", !stopGui.rows.classList.contains("visible") || true);
+      {
+        // folded away is out of the tab order, not just out of sight
+        const foldGui = new GUI("Fold", host, { expanded: true });
+        const foldSection = foldGui.addSection("Folds");
+        check("an open panel and section can be tabbed into", !foldGui.rows.inert && !foldSection.body.inert);
+        foldSection.setOpen(false);
+        check("a folded section is inert", foldSection.body.inert === true);
+        foldGui.titleEl.click();
+        check("a collapsed panel is inert", foldGui.rows.inert === true);
+        foldGui.destroy();
+      }
+      check("panel effects stop on destroy", stopGui.rows.classList.contains("visible") === shownBefore);
       check("panel effect count is drained", stopGui._stops.length === 0);
 
       // section fold state is per tab, and a code default is not overwritten on build
@@ -746,6 +838,12 @@
       secOne.row.querySelector(".gui-section-title").dispatchEvent(new MouseEvent("click", { bubbles: true }));
       check("folding by hand does record it",
         localStorage.getItem("t3:ui:section:One/Shared") === "false");
+      const tabOne = keyGui._tabs[0];
+      const lateSection = keyGui.into(tabOne, () => keyGui.addSection("Late"));
+      lateSection.row.querySelector(".gui-section-title").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      check("a section added through into() is keyed by the tab it went into",
+        localStorage.getItem("t3:ui:section:One/Late") === "false" &&
+          localStorage.getItem("t3:ui:section:Two/Late") === null);
 
       // gui.into() targets a section long after it stopped being the current one
       const intoGui = new GUI("Into", host, { visible: false });
@@ -825,6 +923,26 @@
         `${exportBtn.getBoundingClientRect().width} vs ${importBtn.getBoundingClientRect().width}`);
       check("…and filling it",
         fileRow.getBoundingClientRect().width - (importBtn.getBoundingClientRect().right - exportBtn.getBoundingClientRect().left) < 6);
+      {
+        // Export is of the values on screen, whatever happens to be selected in the saved list
+        uiStore.save("kept");
+        built.refresh("kept");
+        const before = params.amount();
+        params.amount.set(before === 0.33 ? 0.34 : 0.33);
+        const realCreate = URL.createObjectURL;
+        const realClick = HTMLAnchorElement.prototype.click;
+        let blob = null;
+        URL.createObjectURL = (b) => { blob = b; return "blob:stub"; };
+        HTMLAnchorElement.prototype.click = function () {};
+        built.files.buttons[0].click();
+        URL.createObjectURL = realCreate;
+        HTMLAnchorElement.prototype.click = realClick;
+        const exported = JSON.parse(await blob.text());
+        check("Export downloads the current values, not the selected saved preset",
+          exported.amount === params.amount(), `${exported.amount} vs ${params.amount()}`);
+        params.amount.set(before);
+        uiStore.remove("kept");
+      }
       presetSection.destroy();
       gui.endSection();
 
@@ -841,6 +959,13 @@
       check("…as does the number beside it",
         slowRow.row.querySelector(".gui-slider-val").textContent === "1.00",
         slowRow.row.querySelector(".gui-slider-val").textContent);
+      let reported = null;
+      slow.amount.reset(0);
+      const rolledRow = gui.addSlider("Rolled", slow.amount, 0.5, 1, 0.01, { onChange: (v) => (reported = v) });
+      rolledRow.randomize();
+      rolledRow.destroy();
+      check("a reroll reports the value it set, not the one still travelling",
+        reported === slow.amount.target() && reported !== slow.amount(), `${reported} vs ${slow.amount.target()}`);
       slowRow.destroy();
 
       // --- presets, out to a file and back ---------------------------------------------
@@ -896,11 +1021,356 @@
         check("…and is remembered under its name", fileStore.userNames().includes("wrapped"),
           fileStore.userNames().join(","));
 
+        // a store whose own parameters are called `name` and `params` is not a wrapper
+        {
+          const named = createParams({ name: "a", params: 1 });
+          const namedStore = createPresetStore(named);
+          await namedStore.importFile(new File([JSON.stringify({ name: "b", params: 2 })], "n.json"));
+          check("a bare file with a `name` parameter is applied as values",
+            named.name() === "b" && named.params() === 2, `${named.name()} ${named.params()}`);
+          check("…and saves no preset under it", namedStore.userNames().length === 0);
+        }
+
         // and a broken one rejects rather than throwing into the void
         let rejected = false;
         await fileStore.importFile(new File(["{ not json"], "bad.json")).catch(() => (rejected = true));
         check("a malformed file rejects", rejected);
         check("…leaving the values alone", fileParams.amount() === 0.75, String(fileParams.amount()));
+      }
+
+      // --- names, ranges and what a field shows -------------------------------------------
+      {
+        const g = new GUI("Named", host, { expanded: true });
+        const named = {
+          slider: g.addSlider("Speed", signal(1), 0, 2, 0.1),
+          range: g.addRangeSlider("Size", signal([0, 1]), 0, 2, 0.1),
+          checkbox: g.addCheckbox("Paused", signal(false)),
+          select: g.addSelect("Palette", signal("a"), ["a", "b"]),
+          colour: g.addColor("Tint", signal("#ff0000")),
+          text: g.addTextInput("Name", signal("x")),
+          area: g.addTextArea("Notes", signal("x")),
+          number: g.addNumber("Seed", signal(1)),
+        };
+        const unnamed = Object.entries(named)
+          .filter(([, c]) => document.getElementById(c.el.getAttribute("aria-labelledby")) !== c.labelEl)
+          .map(([kind]) => kind);
+        check("every labelled control is named by its label", unnamed.length === 0, unnamed.join(", "));
+        check("a dual slider reports one number, and both ends as text",
+          named.range.el.getAttribute("aria-valuenow") === "1" && named.range.el.getAttribute("aria-valuetext") === "0 to 1",
+          `${named.range.el.getAttribute("aria-valuenow")} / ${named.range.el.getAttribute("aria-valuetext")}`);
+        const grouped = g.addSection("Group");
+        check("a section's rows are a group named by its title",
+          grouped.body.getAttribute("role") === "group" &&
+            document.getElementById(grouped.body.getAttribute("aria-labelledby")) === grouped.row.querySelector(".gui-section-title"));
+        g.endSection();
+
+        const idle = getComputedStyle(named.area.el).borderColor;
+        named.area.el.focus();
+        check("a focused text area shows it", getComputedStyle(named.area.el).borderColor !== idle,
+          getComputedStyle(named.area.el).borderColor);
+        named.area.el.blur();
+        const pressable = g.addButton("Sized", () => {});
+        g.container.style.setProperty("--gui-font-size", "20px");
+        check("--gui-font-size reaches more than the labels",
+          getComputedStyle(pressable.el).fontSize === "19px" &&
+            getComputedStyle(grouped.row.querySelector(".gui-section-title")).fontSize === "17px",
+          `${getComputedStyle(pressable.el).fontSize}, ${getComputedStyle(grouped.row.querySelector(".gui-section-title")).fontSize}`);
+        g.container.style.removeProperty("--gui-font-size");
+
+        const loose = signal(0.5);
+        const looseRow = g.addSlider("No step", loose, 0, 1);
+        looseRow.el.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+        check("a slider with no step takes a hundredth of its range", loose() === 0.51, String(loose()));
+        const flat = signal(5);
+        const flatRow = g.addSlider("No width", flat, 5, 5);
+        flatRow.el.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+        check("…and one with no width keeps its value", flat() === 5, String(flat()));
+        let stepRefused = "";
+        try { g.addSlider("Bad step", signal(1), 0, 1, { onChange() {} }); } catch (e) { stepRefused = e.message; }
+        check("options in the step's place are refused by name", /step must be a positive number/.test(stepRefused), stepRefused);
+
+        const capped = signal(0);
+        const cappedRow = g.addSlider("Capped", capped, 0, 0.75, 0.1);
+        cappedRow.el.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
+        check("a max off the step grid is reached, not passed", capped() === 0.75, String(capped()));
+
+        const odd = signal(1);
+        const oddRow = g.addSlider("Odd", odd, 1, 10, 2);
+        oddRow.el.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+        check("a slider's stops are counted from its min", odd() === 3, String(odd()));
+        oddRow.el.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true }));
+        check("…so the min itself is one of them", odd() === 1, String(odd()));
+        const fine = signal(0.25);
+        const fineRow = g.addSlider("Fine", fine, 0.25, 1, 0.1);
+        fineRow.el.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+        check("a min finer than the step shows in the number beside the slider",
+          fine() === 0.35 && fineRow.row.querySelector(".gui-slider-val").textContent === "0.35",
+          `${fine()} shown as ${fineRow.row.querySelector(".gui-slider-val").textContent}`);
+
+        const typed = signal(5);
+        const typedRow = g.addNumber("Typed", typed, { min: 0, max: 10, step: 1 });
+        typedRow.el.focus();
+        typedRow.el.value = "250.5";
+        typedRow.el.dispatchEvent(new Event("input"));
+        check("a typed number is held to its range", typed() === 10, String(typed()));
+        check("…while the field keeps what is being typed", typedRow.el.value === "250.5", typedRow.el.value);
+        typedRow.el.blur();
+        check("…and shows what was stored once focus leaves", typedRow.el.value === "10", typedRow.el.value);
+        typedRow.el.focus();
+        typedRow.el.value = "";
+        typedRow.el.dispatchEvent(new Event("input"));
+        typedRow.el.blur();
+        check("an emptied number field shows its number again", typedRow.el.value === "10", typedRow.el.value);
+
+        const axes = signal([1, 2, 3]);
+        const axesRow = g.addVector("Axes", axes, { step: 0.1 });
+        axesRow.inputs[0].focus();
+        axesRow.inputs[0].value = "";
+        axesRow.inputs[0].dispatchEvent(new Event("input"));
+        axesRow.inputs[0].blur();
+        check("…and so does a vector axis", axesRow.inputs[0].value === "1.0", axesRow.inputs[0].value);
+
+        const words = signal("abc");
+        const wordsRow = g.addTextInput("Words", words);
+        wordsRow.el.focus();
+        words.set("from code");
+        check("a text field being typed in is left alone", wordsRow.el.value === "abc", wordsRow.el.value);
+        wordsRow.el.blur();
+        check("…and catches up when focus leaves", wordsRow.el.value === "from code", wordsRow.el.value);
+
+        const exact = signal(0.5);
+        const exactRow = g.addSlider("Exact", exact, 0, 1, 0.01);
+        exactRow.el.focus();
+        exactRow.el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+        const exactEditor = exactRow.row.querySelector(".gui-slider-edit");
+        exactEditor.value = "0.7";
+        exactEditor.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+        check("Enter in the value editor hands focus back to the slider",
+          exact() === 0.7 && document.activeElement === exactRow.el, document.activeElement.tagName);
+
+        const spot = signal([0.5, 0.5]);
+        const spotRow = g.addPad("Spot", spot);
+        const spotBox = spotRow.el.getBoundingClientRect();
+        const pressPad = (button) => spotRow.el.dispatchEvent(new PointerEvent("pointerdown", {
+          clientX: spotBox.left + 2, clientY: spotBox.top + 2, button, pointerId: 9, bubbles: true,
+        }));
+        pressPad(2);
+        check("a right-click leaves a pad alone", spot().join() === "0.5,0.5", spot().join());
+        pressPad(0);
+        check("a press on a pad writes where it landed", spot()[0] < 0.1 && spot()[1] < 0.1, spot().join());
+
+        const none = signal("nothing");
+        const noneRow = g.addSegmented("None yet", none, ["a", "b", "c", "d"]);
+        noneRow.el.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+        check("ArrowLeft with nothing selected starts from the last option", none() === "d", none());
+        none.set("nothing");
+        noneRow.el.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+        check("…and ArrowRight from the first", none() === "a", none());
+        g.destroy();
+      }
+
+      // --- what a panel-wide reroll leaves alone -------------------------------------------
+      {
+        const g = new GUI("Rolls", host, { expanded: true });
+        const rolls = [signal(0.5), signal(0.5), signal(0.5)];
+        rolls.forEach((sig, i) => g.addSlider(`Roll ${i}`, sig, 0, 1, 0.001));
+        let passes = 0;
+        const stopCounting = effect(() => { rolls.forEach((sig) => sig()); passes++; });
+        passes = 0;
+        g.randomizeAll();
+        check("a panel-wide reroll is one pass of effects", passes === 1, String(passes));
+        stopCounting();
+
+        const inside = signal(0.5);
+        g.addSection("Locked", { disabled: true });
+        const insideRow = g.addSlider("Inside", inside, 0, 1, 0.001);
+        g.endSection();
+        for (let i = 0; i < 5; i++) g.randomizeAll();
+        insideRow.labelEl.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        check("a reroll leaves a disabled section's controls alone", inside() === 0.5, String(inside()));
+
+        const looks = createParams({ look: 0.5, seed: 7 });
+        const lookStore = createPresetStore(looks, { builtin: { one: { seed: 111 }, two: { seed: 222 } } });
+        g.addSlider("Look", looks.look, 0, 1, 0.001);
+        g.addSlider("Seed", looks.seed, 0, 999, 1, { randomizable: false });
+        const lookRows = g.addPresets(lookStore);
+        for (let i = 0; i < 20; i++) g.randomizeAll();
+        check("a reroll does not roll the preset picker over a pinned value", looks.seed() === 7, String(looks.seed()));
+
+        looks.seed.set(42);
+        lookStore.save("one");
+        lookRows.refresh("one");
+        looks.seed.set(7);
+        lookRows.load.click();
+        check("Load restores a saved preset that shares a built-in's name", looks.seed() === 42, String(looks.seed()));
+        lookRows.builtin.el.value = "one";
+        lookRows.builtin.el.dispatchEvent(new Event("change"));
+        check("…while the built-in picker still applies the built-in", looks.seed() === 111, String(looks.seed()));
+
+        const bare = g.addPresets(createPresetStore(createParams({ x: 1 })));
+        check("with no built-in presets there is no built-in picker", !bare.builtin);
+        g.destroy();
+      }
+
+      // --- where rows land ---------------------------------------------------------------
+      {
+        const g = new GUI("Places", host, { expanded: true });
+        const first = g.addTab("One");
+        const inFirst = g.addSection("In one");
+        const second = g.addTab("Two");
+        g.selectTab(5);
+        check("selecting a tab that is not there changes nothing",
+          g.container.querySelectorAll(".gui-tab-panel.active").length === 1);
+        const nested = g.into(inFirst, () => g.addSection("Late"));
+        check("a section added from inside a section lands in that section's tab", first.panel.contains(nested.row));
+        second.destroy();
+        const orphan = g.addSlider("After", signal(1), 0, 2, 0.1);
+        check("a row added after its tab was destroyed lands in the one that is left", first.panel.contains(orphan.row));
+        g.destroy();
+      }
+
+      // --- rows and panels built while an effect is running --------------------------------
+      {
+        const g = new GUI("Owned", host, { expanded: true });
+        const again = signal(0);
+        const followed = signal(0.25);
+        let built = null;
+        let nestedPanel = null;
+        const stopOwner = effect(() => {
+          again();
+          if (!built) built = g.addSlider("Built in an effect", followed, 0, 1, 0.01);
+          if (!nestedPanel) nestedPanel = new GUI("Inner", host, { expanded: true });
+        });
+        again.set(1);
+        followed.set(0.75);
+        check("a row built inside an effect outlives that effect's next run", built.el.value === 0.75, String(built.el.value));
+        nestedPanel.titleEl.click();
+        check("…and so does a panel", nestedPanel.container.classList.contains("collapsed"));
+        stopOwner();
+        nestedPanel.destroy();
+        g.destroy();
+      }
+
+      // --- key bindings stay out of the way of the control that has the key -----------------
+      {
+        const g = new GUI("Keys in use", host, { expanded: true });
+        const pressed = g.addButton("Go", () => {});
+        const moved = g.addSlider("Moved", signal(1), 0, 2, 0.1);
+        const counts = { space: 0, left: 0, held: 0, repeated: 0 };
+        const unbinds = [
+          bindKey("Space", () => counts.space++),
+          bindKey("ArrowLeft", () => counts.left++),
+          bindKey("KeyP", () => counts.held++),
+          bindKey("KeyO", () => counts.repeated++, { repeat: true }),
+        ];
+        const press = (el, code, extra = {}) =>
+          el.dispatchEvent(new KeyboardEvent("keydown", { code, bubbles: true, ...extra }));
+        press(pressed.el, "Space");
+        check("Space on a button presses the button, not a binding", counts.space === 0, String(counts.space));
+        press(document.body, "Space");
+        check("…and anywhere else it is the binding", counts.space === 1, String(counts.space));
+        press(moved.el, "ArrowLeft");
+        check("an arrow on a slider moves the slider, not a binding", counts.left === 0, String(counts.left));
+        for (let i = 0; i < 4; i++) press(document.body, "KeyP", { repeat: i > 0 });
+        check("a held key fires its binding once", counts.held === 1, String(counts.held));
+        for (let i = 0; i < 4; i++) press(document.body, "KeyO", { repeat: i > 0 });
+        check("…unless the binding asks for repeats", counts.repeated === 4, String(counts.repeated));
+        unbinds.forEach((unbind) => unbind());
+        g.destroy();
+      }
+
+      // --- the slider element on its own -------------------------------------------------
+      {
+        const lone = document.createElement("range-slider");
+        lone.setAttribute("min", "0");
+        lone.setAttribute("max", "1");
+        lone.setAttribute("step", "0.01");
+        host.append(lone);
+        check("a slider with no value sits mid-range", lone.value === 0.5, String(lone.value));
+        lone.max = 4;
+        check("…wherever the range goes, until it is given one", lone.value === 2, String(lone.value));
+        lone.value = 1;
+        lone.max = 10;
+        check("…after which it keeps it", lone.value === 1, String(lone.value));
+        lone.step = "nonsense";
+        check("an unusable step is ignored", lone.step === 0.01, String(lone.step));
+        lone.remove();
+
+        const pair = document.createElement("range-slider");
+        pair.setAttribute("dual", "");
+        pair.setAttribute("min", "10");
+        pair.setAttribute("max", "20");
+        host.append(pair);
+        check("a dual slider with no value spans its range", pair.value.join() === "10,20", pair.value.join());
+        pair.remove();
+
+        const logs = document.createElement("range-slider");
+        let orderMatters = false;
+        try {
+          logs.curve = "log";
+          logs.min = 20;
+          logs.max = 20000;
+          logs.value = 632;
+        } catch { orderMatters = true; }
+        check("curve can be assigned before min and max",
+          !orderMatters && Math.abs(logs.valueToPercentage(632) - 50) < 0.5, String(logs.valueToPercentage(632)));
+
+        const g = new GUI("Two hands", host, { expanded: true });
+        const hands = [signal(0.5), signal(0.5)];
+        const rows = hands.map((sig, i) => g.addSlider(`Hand ${i}`, sig, 0, 1, 0.01));
+        const boxes = rows.map((row) => row.el.getBoundingClientRect());
+        rows.forEach((row, i) => row.el.shadowRoot.getElementById("container").dispatchEvent(
+          new PointerEvent("pointerdown", { clientX: boxes[i].left + boxes[i].width * 0.5, pointerId: i + 1, bubbles: true })));
+        window.dispatchEvent(new PointerEvent("pointermove", {
+          clientX: boxes[1].left + boxes[1].width * 0.9, pointerId: 2, bubbles: true }));
+        check("a second pointer moves only the slider it is on",
+          hands[0]() === 0.5 && Math.abs(hands[1]() - 0.9) < 0.03, `${hands[0]()} ${hands[1]()}`);
+        window.dispatchEvent(new PointerEvent("pointerup", { pointerId: 2, bubbles: true }));
+        check("…and lifting it ends only that drag", rows[0].el.isDragging && !rows[1].el.isDragging);
+        window.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, bubbles: true }));
+        g.destroy();
+      }
+
+      // --- the graph element follows its box and its colours --------------------------------
+      {
+        const tall = document.createElement("stats-graph");
+        tall.style.cssText = "display:block;width:200px";
+        tall.setAttribute("stacked", "");
+        host.append(tall);
+        tall.series = ["A", "B"];
+        for (let i = 0; i < 5; i++) tall.push([1, 2]);
+        tall.draw();
+        const shortHeight = tall.canvas.height;
+        tall.style.setProperty("--gui-graph-height", "90px");
+        tall.draw();
+        const scale = Math.min(window.devicePixelRatio || 1, 2);
+        check("a graph made taller redraws at its new height",
+          tall.canvas.height > shortHeight && tall.canvas.height === Math.round(tall.canvas.clientHeight * scale),
+          `${shortHeight} -> ${tall.canvas.height}`);
+        tall.style.setProperty("--gui-series-1", "rgb(1, 2, 3)");
+        check("a legend swatch follows its colour variable",
+          getComputedStyle(tall.shadowRoot.querySelector(".legend i")).backgroundColor === "rgb(1, 2, 3)");
+        tall.min = undefined;
+        check("clearing min is not a NaN", tall.min === undefined, String(tall.min));
+        tall.remove();
+      }
+
+      // --- what is saved, and when --------------------------------------------------------
+      {
+        const kept = createParams({ a: 1, b: 2 }, { storageKey: "t5" });
+        window.dispatchEvent(new Event("pagehide"));
+        check("leaving a page nothing was changed on saves nothing", localStorage.getItem("t5") === null,
+          String(localStorage.getItem("t5")));
+        kept.a.set(5);
+        window.dispatchEvent(new Event("pagehide"));
+        check("a change still waiting is saved as the page goes", localStorage.getItem("t5") === '{"a":5}',
+          String(localStorage.getItem("t5")));
+        kept.b.set(9);
+        kept.$clear();
+        window.dispatchEvent(new Event("pagehide"));
+        check("$clear() holds through the page going away", localStorage.getItem("t5") === null,
+          String(localStorage.getItem("t5")));
+        kept.$stop();
       }
 
       // --- panel destroy --------------------------------------------------------------

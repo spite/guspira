@@ -5,8 +5,10 @@
   "type": "module",
   "main": "./dist/guspira.js",
   "module": "./dist/guspira.js",
+  "types": "./src/index.d.ts",
   "exports": {
     ".": {
+      "types": "./src/index.d.ts",
       "import": "./src/index.js",
       "default": "./dist/guspira.js"
     },
@@ -19,6 +21,9 @@
     "./keyboard": "./src/keyboard.js",
     "./random": "./src/random.js",
     "./range-slider": "./src/range-slider.js",
+    "./stats": "./src/stats.js",
+    "./stats-graph": "./src/stats-graph.js",
+    "./curve": "./src/curve.js",
     "./css/gui.css": "./css/gui.css",
     "./dist/*": "./dist/*",
     "./package.json": "./package.json"
@@ -37,7 +42,7 @@
   ],
   "scripts": {
     "start": "npx --yes serve .",
-    "test": "node test/reactive.test.mjs && node test/params.test.mjs && node test/stress.test.mjs && node test/coverage.test.mjs && node test/dist.test.mjs && node test/pages.test.mjs",
+    "test": "node test/reactive.test.mjs && node test/params.test.mjs && node test/stress.test.mjs && node test/coverage.test.mjs && node test/types.test.mjs && node test/dist.test.mjs && node test/pages.test.mjs",
     "build": "node build.mjs",
     "watch": "node build.mjs --watch",
     "prepublishOnly": "npm run build && npm test",
@@ -66,7 +71,8 @@
     "node": ">=18"
   },
   "devDependencies": {
-    "esbuild": "^0.28.1"
+    "esbuild": "^0.28.1",
+    "typescript": "^7.0.2"
   },
   "unpkg": "./dist/guspira.iife.min.js",
   "jsdelivr": "./dist/guspira.iife.min.js"

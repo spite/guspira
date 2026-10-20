@@ -1,7 +1,6 @@
 // How a slider's track maps to its value. Kept apart from the element because it is pure
 // arithmetic with no DOM in it: the panel needs the same mapping to reroll a curved slider,
 // and a test should be able to check it without a browser.
-
 //
 // Linear is the whole story until a parameter spans orders of magnitude, at which point every
 // interesting value is crammed into the first few pixels. `curve` bends the track:
@@ -31,9 +30,12 @@ export function normalizeCurve(value) {
 
 // A log track is only defined where every value on it has a logarithm, so a range touching or
 // crossing zero is refused up front rather than left to produce a thumb that will not move.
+export function curveFitsRange(curve, min, max) {
+  return curve !== "log" || (min !== 0 && max !== 0 && Math.sign(min) === Math.sign(max));
+}
+
 export function assertCurveRange(curve, min, max, where = "range-slider") {
-  if (curve !== "log") return;
-  if (min === 0 || max === 0 || Math.sign(min) !== Math.sign(max)) {
+  if (!curveFitsRange(curve, min, max)) {
     throw new RangeError(
       `[guspira] ${where}: curve "log" needs min and max to be non-zero and the same sign ` +
         `(given ${min} to ${max}) — 0 has no logarithm. Use a number like curve: 2 for a ` +

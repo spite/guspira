@@ -2,11 +2,10 @@
 // just without the storage half. Anything that reaches for the DOM at import or call time
 // (rather than only when a file is actually saved or loaded) shows up here.
 
-import { mixRgb } from "../src/color.js";
 import { createParams } from "../src/params.js";
 import { createPresetStore } from "../src/presets.js";
-import { effect, easings } from "../src/reactive.js";
-import { mixColors, hexToRgb, rgbToHex, isHexColor } from "../src/color.js";
+import { signal, effect, easings } from "../src/reactive.js";
+import { mixRgb, mixColors, hexToRgb, rgbToHex, isHexColor } from "../src/color.js";
 
 let failures = 0;
 const check = (name, cond, extra = "") => {
@@ -15,9 +14,6 @@ const check = (name, cond, extra = "") => {
 };
 
 const DEFAULTS = { count: 100, speed: 0.5, name: "a", on: true, range: [0.2, 0.8] };
-
-// a tiny helper so the duration-signal test reads clearly
-const signalFromParams = () => createParams({ ms: 120 }).ms;
 
 // --- construction ---------------------------------------------------------------------
 const params = createParams(DEFAULTS);
@@ -37,6 +33,20 @@ const applied = params.$apply({ count: 5, speed: "fast", nope: 1, range: [0, 1] 
 check("applies matching keys", params.count() === 5 && params.range()[0] === 0);
 check("rejects the wrong type", params.speed() === 0.5 && !applied.includes("speed"));
 check("rejects unknown keys", !applied.includes("nope"));
+
+// …down to what is inside an array, and what a colour or a number has to be
+{
+  const typed = createParams({ range: [0.2, 0.8], tint: "#ff0000", count: 5, name: "a" }, { ease: 50 });
+  const taken = typed.$apply({ range: ["a", null], tint: "red", count: NaN, name: "anything" });
+  check("an array of the right length but the wrong contents is rejected",
+    typed.range.target().join() === "0.2,0.8", JSON.stringify(typed.range.target()));
+  check("a hex colour is only replaced by a hex colour", typed.tint.target() === "#ff0000", typed.tint.target());
+  check("a number that is not one is rejected", typed.count.target() === 5, String(typed.count.target()));
+  check("a plain string takes any string", typed.name() === "anything");
+  check("…and only what was taken is reported", taken.join() === "name", taken.join());
+  check("a good value of each still applies",
+    typed.$apply({ range: [0, 1], tint: "#00ff00", count: 9 }).length === 3);
+}
 
 // --- apply is one batch ------------------------------------------------------------------
 let runs = 0;
@@ -80,6 +90,30 @@ check("toJSON is parseable", JSON.parse(store.toJSON()).speed === 2);
 store.remove("mine");
 check("removal works", !store.userNames().includes("mine"));
 check("applying the custom entry is a no-op", store.apply("custom").length === 0);
+
+// a saved preset may be called anything, and load() reaches it whatever it is called
+{
+  params.speed.set(5);
+  params.count.set(99);
+  store.save("fast");
+  store.save("custom");
+  store.save("constructor");
+  params.speed.set(1);
+  params.count.set(1);
+  store.load("fast");
+  check("load() restores a saved preset that shares a built-in's name",
+    params.speed() === 5 && params.count() === 99, `${params.speed()} ${params.count()}`);
+  store.apply("fast");
+  check("…while apply() still means the built-in", params.speed() === 2 && params.count() === 99);
+  params.speed.set(1);
+  store.load("custom");
+  check("a preset saved as \"custom\" can be loaded", params.speed() === 5 && store.current() === "custom");
+  check("odd names are listed like any other", store.userNames().includes("constructor"));
+  check("a name nobody saved applies nothing", store.apply("toString").length === 0 && store.current() !== "toString",
+    store.current());
+  ["fast", "custom", "constructor"].forEach((name) => store.remove(name));
+  check("…and they remove cleanly", store.userNames().length === 0, store.userNames().join());
+}
 
 // --- colour --------------------------------------------------------------------------
 check("hex round-trips", rgbToHex(hexToRgb("#43334f")) === "#43334f");
@@ -167,6 +201,61 @@ check("a mix at 1 is the end", mixColors("#ff8a3d", "#2f6fd0", 1) === "#2f6fd0")
   check("…while its target is already there", store.position.target().join() === "10,10,10");
   check("a snapshot records the target, not the journey", store.$snapshot().position.join() === "10,10,10");
   store.$stop();
+}
+
+// --- storage, against a stand-in --------------------------------------------------------
+// Node has none, which is what the checks at the top rely on; from here on there is one.
+{
+  const disk = new Map();
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: {
+      getItem: (key) => (disk.has(key) ? disk.get(key) : null),
+      setItem: (key, value) => disk.set(key, String(value)),
+      removeItem: (key) => disk.delete(key),
+    },
+  });
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const saved = (key) => (disk.has(key) ? JSON.parse(disk.get(key)) : null);
+
+  const kept = createParams({ a: 1, b: 2, range: [0, 1] }, { storageKey: "kept", delay: 5 });
+  await wait(30);
+  check("building a store writes nothing", saved("kept") === null, JSON.stringify(saved("kept")));
+  kept.a.set(5);
+  await wait(30);
+  check("a change is saved", saved("kept").a === 5);
+  check("…and only what differs from the defaults", Object.keys(saved("kept")).join() === "a",
+    Object.keys(saved("kept")).join());
+  kept.a.set(1);
+  await wait(30);
+  check("a value back at its default leaves the save", Object.keys(saved("kept")).length === 0);
+
+  kept.b.set(7);
+  kept.$clear();
+  await wait(30);
+  check("$clear() drops the save and the write that was waiting", saved("kept") === null,
+    JSON.stringify(saved("kept")));
+  kept.$stop();
+
+  disk.set("seeded", JSON.stringify({ a: 9, range: ["x", "y"], gone: true }));
+  const seeded = createParams({ a: 1, range: [0, 1] }, { storageKey: "seeded", delay: 5 });
+  check("a stored value is restored", seeded.a() === 9);
+  check("…unless it does not fit", seeded.range().join() === "0,1", JSON.stringify(seeded.range()));
+  seeded.$stop();
+
+  // a store built while an effect is running outlives that effect's next run
+  const again = signal(0);
+  let owned = null;
+  effect(() => {
+    again();
+    if (!owned) owned = createParams({ a: 1 }, { storageKey: "owned", delay: 5 });
+  });
+  again.set(1);
+  owned.a.set(3);
+  await wait(30);
+  check("a store built inside an effect keeps saving after it re-runs", saved("owned")?.a === 3,
+    JSON.stringify(saved("owned")));
+  owned.$stop();
 }
 
 console.log(failures ? `\n${failures} FAILURES` : "\nall params tests passed");

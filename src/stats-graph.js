@@ -79,7 +79,7 @@ class StatsGraph extends HTMLElement {
             flex-wrap: wrap;
             gap: 1px 9px;
             margin-top: 3px;
-            font-size: 10px;
+            font-size: calc(var(--gui-font-size, 13px) - 3px);
             line-height: 1.5;
             color: var(--gui-muted, #888);
           }
@@ -109,6 +109,8 @@ class StatsGraph extends HTMLElement {
     // which is exactly when there is no reason to spend anything.
     if (typeof IntersectionObserver === "function") {
       const io = new IntersectionObserver(([entry]) => {
+        // Back in view: whatever was pushed while it was away has yet to be drawn.
+        if (entry.isIntersecting && !this._visible) this._dirty = true;
         this._visible = entry.isIntersecting;
       });
       io.observe(this);
@@ -178,11 +180,12 @@ class StatsGraph extends HTMLElement {
   _buildLegend() {
     if (!this.legendEl) return;
     this.legendEl.textContent = "";
+    this._legendValues = null;
     if (!this._series) return;
     this._legendValues = this._series.map((name, index) => {
       const item = document.createElement("span");
       const swatch = document.createElement("i");
-      swatch.style.background = this._colour(index);
+      swatch.style.background = this._swatch(index);
       const value = document.createElement("b");
       item.append(swatch, document.createTextNode(name), value);
       this.legendEl.append(item);
@@ -230,12 +233,17 @@ class StatsGraph extends HTMLElement {
     return Array.isArray(last) ? last.reduce((sum, v) => sum + v, 0) : last;
   }
 
-  _colour(index) {
+  _colour(index, style = getComputedStyle(this)) {
     if (index >= PALETTE.length) {
       return `hsl(${((index - PALETTE.length + 1) * GENERATED_HUE_STEP) % 360} 62% 52%)`;
     }
     const [name, fallback] = PALETTE[index].split(", ");
-    return getComputedStyle(this).getPropertyValue(name).trim() || fallback;
+    return style.getPropertyValue(name).trim() || fallback;
+  }
+
+  // The same colour as CSS rather than as a resolved value, so a swatch follows its variable.
+  _swatch(index) {
+    return index < PALETTE.length ? `var(${PALETTE[index]})` : this._colour(index);
   }
 
   draw() {
@@ -244,9 +252,11 @@ class StatsGraph extends HTMLElement {
     const width = this.canvas.clientWidth;
     const height = this.canvas.clientHeight;
     if (!width || !height) return;
-    if (this.canvas.width !== Math.round(width * dpr)) {
-      this.canvas.width = Math.round(width * dpr);
-      this.canvas.height = Math.round(height * dpr);
+    const pixelWidth = Math.round(width * dpr);
+    const pixelHeight = Math.round(height * dpr);
+    if (this.canvas.width !== pixelWidth || this.canvas.height !== pixelHeight) {
+      this.canvas.width = pixelWidth;
+      this.canvas.height = pixelHeight;
     }
 
     const ctx = this.ctx;
@@ -274,11 +284,12 @@ class StatsGraph extends HTMLElement {
     this._updateLegend(performance.now());
 
     if (stacked) {
+      const colours = [];
       this._history.forEach((sample, index) => {
         const parts = Array.isArray(sample) ? sample : [sample];
         let base = min;
         parts.forEach((part, series) => {
-          ctx.fillStyle = this._colour(series);
+          ctx.fillStyle = colours[series] ??= this._colour(series, style);
           const top = y(base + part);
           ctx.fillRect(index * columnWidth, top, Math.max(1, columnWidth - 0.5), y(base) - top);
           base += part;
@@ -349,7 +360,7 @@ class StatsGraph extends HTMLElement {
   }
 
   set min(value) {
-    this._min = parseFloat(value);
+    this._min = value === undefined || value === null ? undefined : parseFloat(value);
     this.draw();
   }
   get min() {

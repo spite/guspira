@@ -25,11 +25,14 @@
         </div>
         <div class="note">
           <strong>Try:</strong> press <kbd>R</kbd> to reroll the panel, <kbd>S</kbd> to toggle the seeded source.
-          The second button only touches the controls below it, and the <em>Source</em> rows are marked
-          <code>randomizable: false</code> so no reroll moves them.
+          The second button only touches the controls below it, and <em>Seeded</em> is marked
+          <code>randomizable: false</code> so no reroll flips it.
           With the seed on, the same seed always produces the same roll — press <kbd>R</kbd> a few
           times, set the seed back, and the sequence repeats. Key bindings ignore presses while you are
           typing in a field: click into <em>Name</em> and press <kbd>R</kbd>.
+          <kbd>Shift</kbd>+<kbd>D</kbd> is bound once and unbinds itself — press it twice.
+          Hold <kbd>]</kbd> to nudge <em>Spin</em>: that binding asks for <code>repeat</code>, where
+          the others fire once however long the key is held.
           <em>Detail</em> has its own <code>randomize</code>: drag it anywhere across 0–64, but every
           reroll — label, <kbd>Alt</kbd>+<kbd>R</kbd>, or the button — lands between 8 and 16.
         </div>

@@ -26,8 +26,8 @@
         <div class="note">
           <strong>Why destroy() matters:</strong> a row that is only removed from the DOM stays
           subscribed to its signal, and the subscription keeps the detached row alive. destroy() stops
-          the row's effects first. The counter below tracks live effect count via the panel's own
-          controller list.
+          the row's effects first. <em>Controllers registered</em> above is the panel's own list:
+          it goes down by one for every row destroyed, and to nothing when the panel is.
         </div>
       </section>
       <aside id="gui-container"></aside>

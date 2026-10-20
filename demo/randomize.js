@@ -56,9 +56,9 @@ gui.addCheckbox("Seeded", seeded, {
   onChange: applySource,
   title: "Swap Math.random for a deterministic generator",
 });
-gui.addNumber("Seed", seed, { randomizable: false, onChange: applySource });
+// Number and text fields are never rerolled, so these two need no opting out.
+gui.addNumber("Seed", seed, { onChange: applySource });
 gui.addTextInput("Name", name, {
-  randomizable: false,
   title: "Focus this and press R — the binding ignores keys while you type",
 });
 
@@ -95,7 +95,23 @@ bindKey("KeyS", () => {
   applySource();
   log(`${stamp()} S → seeded ${seeded()}`);
 });
+// Modifiers have to match exactly, so Shift+D is its own binding and a bare D does nothing.
+// bindKey hands back its own undo; this one uses it after the first press.
+const unbindShiftD = bindKey(
+  "KeyD",
+  () => {
+    log(`${stamp()} Shift+D — heard once, and unbound itself`);
+    unbindShiftD();
+  },
+  { shift: true }
+);
 bindKey("KeyC", () => log(`${stamp()} C — and Ctrl+C still copies, because modifiers must match`));
+// A held key fires its binding once. `repeat: true` lets it keep firing, which suits a nudge.
+bindKey(
+  "BracketRight",
+  () => values.spin.set(Math.min(1, Math.round((values.spin() + 0.01) * 100) / 100)),
+  { repeat: true }
+);
 
 effect(() => {
   show({

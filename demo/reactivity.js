@@ -20,7 +20,7 @@ const area = computed(() => width() * height());
 const ratio = computed(() => Math.round((width() / height()) * 100) / 100);
 
 // Declared before the effects below: effectRAF runs its function immediately, and that
-// function reads both tweens through render().
+// function reads the tween through render().
 const fade = tweened(1, 600, easings.cubicOut);
 
 let plainRuns = 0;
@@ -115,6 +115,37 @@ gui.addButton("Stop it", () => {
   lazy.stop();
   log(`${stamp()} lazy effect stopped — width no longer wakes it`);
 });
+
+gui.addSection("teardown & ownership");
+// An effect that returns a function is handing back its teardown: it runs before the next
+// run and on stop, so the timer below can never be left running or started twice.
+const ticking = signal(false);
+const ticks = signal(0);
+effect(() => {
+  if (!ticking()) return;
+  const id = setInterval(() => ticks.update((n) => n + 1), 250);
+  log(`${stamp()} timer started`);
+  return () => {
+    clearInterval(id);
+    log(`${stamp()} teardown ran — timer cleared`);
+  };
+});
+gui.addCheckbox("Run a timer", ticking);
+gui.addMonitor("ticks", ticks);
+
+// An effect created inside another belongs to it. Switching the branch off disposes the
+// child, so `height` stops waking it — nothing has to keep a handle and stop it by hand.
+const branch = signal(false);
+const childRuns = signal(0);
+effect(() => {
+  if (!branch()) return;
+  effect(() => {
+    height();
+    childRuns.set(childRuns.peek() + 1);
+  });
+});
+gui.addCheckbox("Build a child effect", branch);
+gui.addMonitor("child runs (reads height)", childRuns);
 
 gui.addSection("tweened()");
 gui.addText(

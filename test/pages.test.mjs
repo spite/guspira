@@ -5,12 +5,13 @@
 //
 // Skipped (with a note) when no Chrome is around, so `npm test` still works anywhere.
 
+import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { readdirSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const root = new URL("..", import.meta.url).pathname;
+const root = fileURLToPath(new URL("..", import.meta.url));
 const PORT = 8111;
 
 const CHROME = [
@@ -26,6 +27,56 @@ if (!CHROME) {
   process.exit(0);
 }
 
+// A profile of its own, so a run never joins a browser that is already open: without one
+// Chrome hands the page to the running instance and this process waits on nothing.
+// Windows Chrome reached from WSL needs a Windows path, and is not killed by a signal sent
+// from here, so its processes are stopped by that profile path once each run is over.
+const WSL = CHROME.startsWith("/mnt/");
+const drive = WSL ? CHROME.split("/")[2] : "";
+const profileDir = WSL
+  ? join(`/mnt/${drive}/Temp`, `guspira-test-${process.pid}`)
+  : mkdtempSync(join(tmpdir(), "guspira-test-"));
+if (WSL) mkdirSync(profileDir, { recursive: true });
+const profileArg = WSL
+  ? `${drive.toUpperCase()}:\\Temp\\guspira-test-${process.pid}`
+  : profileDir;
+
+const reap = () => {
+  if (!WSL) return;
+  spawnSync(
+    "powershell.exe",
+    [
+      "-NoProfile",
+      "-Command",
+      `Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | ` +
+        `Where-Object { $_.CommandLine -like '*guspira-test-${process.pid}*' } | ` +
+        `ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`,
+    ],
+    { stdio: "ignore" }
+  );
+};
+
+const chrome = (page, budget, timeout) => {
+  const run = spawnSync(
+    CHROME,
+    [
+      "--headless=new",
+      `--user-data-dir=${profileArg}`,
+      "--mute-audio",
+      // software GL rather than --disable-gpu: the flagship demo is a shader, and a
+      // shader that stopped compiling should fail this suite, not render a blank page
+      "--use-gl=swiftshader",
+      "--no-sandbox",
+      `--virtual-time-budget=${budget}`,
+      "--dump-dom",
+      `http://localhost:${PORT}${page}`,
+    ],
+    { encoding: "utf8", timeout }
+  );
+  reap();
+  return run;
+};
+
 const pages = [
   "/index.html",
   ...readdirSync(join(root, "demo"))
@@ -33,20 +84,23 @@ const pages = [
     .map((f) => `/demo/${f}`),
 ];
 
+// This machine only, and only this folder: it is a file server for the length of a test run.
 const server = spawn(
   process.execPath,
   [
     "-e",
     `const http=require("http"),fs=require("fs"),path=require("path");
      const types={".html":"text/html",".js":"text/javascript",".mjs":"text/javascript",".css":"text/css",".json":"application/json"};
+     const root=${JSON.stringify(root)};
      http.createServer((req,res)=>{
-       const file=path.join(${JSON.stringify(root)}, decodeURIComponent(req.url.split("?")[0]));
+       const file=path.join(root, decodeURIComponent(req.url.split("?")[0]));
+       if(!file.startsWith(root)){res.writeHead(403);res.end();return;}
        fs.readFile(file,(e,d)=>{
          if(e){res.writeHead(404);res.end();return;}
          res.writeHead(200,{"content-type":types[path.extname(file)]||"application/octet-stream"});
          res.end(d);
        });
-     }).listen(${PORT});`,
+     }).listen(${PORT}, "127.0.0.1");`,
   ],
   { stdio: "ignore" }
 );
@@ -65,20 +119,7 @@ try {
   // seconds either way — and a killed Chrome flushes no DOM at all, so a retry that asked for
   // more budget under the same wall-clock ceiling reported "0 rows" and looked like breakage.
   const load = (page, budget) => {
-    const run = spawnSync(
-      CHROME,
-      [
-        "--headless=new",
-        // software GL rather than --disable-gpu: the flagship demo is a shader, and a
-        // shader that stopped compiling should fail this suite, not render a blank page
-        "--use-gl=swiftshader",
-        "--no-sandbox",
-        `--virtual-time-budget=${budget}`,
-        "--dump-dom",
-        `http://localhost:${PORT}${page}`,
-      ],
-      { encoding: "utf8", timeout: Math.max(30000, budget * 8) }
-    );
+    const run = chrome(page, budget, Math.max(30000, budget * 8));
     // Killed on the timeout: an empty DOM here says nothing about the page.
     const killed = run.error?.code === "ETIMEDOUT" || run.signal !== null;
     return { out: run.stdout || "", killed };
@@ -92,7 +133,7 @@ try {
     const needsPanel = !isGallery && !page.endsWith("range-slider.html");
 
     // demo/warp.js writes its shader-compile result into a monitor row
-    const shaderBroken = /gui-monitor">shader error/.test(out) || /gui-monitor">no WebGL2/.test(out);
+    const shaderBroken = /gui-monitor">[^<]*(shader error|no WebGL2)/.test(out);
     const bad = (needsPanel && rows === 0) || emptyReadout || shaderBroken;
     return { bad, rows, emptyReadout, shaderBroken, killed };
   };
@@ -124,19 +165,7 @@ try {
     ["/test/dist.html", 12000],
     ["/test/mobile.html", 40000],
   ]) {
-    const out =
-      spawnSync(
-        CHROME,
-        [
-          "--headless=new",
-          "--use-gl=swiftshader",
-          "--no-sandbox",
-          `--virtual-time-budget=${budget}`,
-          "--dump-dom",
-          `http://localhost:${PORT}${suite}`,
-        ],
-        { encoding: "utf8", timeout: 120000 }
-      ).stdout || "";
+    const out = chrome(suite, budget, 120000).stdout || "";
 
     const text = out.replace(/<[^>]+>/g, "\n");
     const passed = (text.match(/^\s*ok\s{2,}/gm) || []).length;
@@ -150,6 +179,11 @@ try {
   }
 } finally {
   server.kill();
+  reap();
+  // Windows can hold the profile's files for a moment after the browser is gone.
+  try {
+    rmSync(profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  } catch {}
 }
 
 console.log(failures ? `\n${failures} PAGES BROKEN` : "\nevery page runs, and both browser suites pass");

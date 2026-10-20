@@ -26,7 +26,10 @@
         <div class="note">
           <strong>Try:</strong> press <em>Write three signals</em> twice — once unbatched, once batched —
           and compare how many times the effect ran. Then pause the rAF effect and drag a slider: the
-          runs stop, and resume catches up with exactly one.
+          runs stop, and resume catches up with exactly one. Tick <em>Run a timer</em> and untick
+          it: the effect's own teardown clears the interval. Tick <em>Build a child effect</em>,
+          drag <em>height</em> to see it counting, then untick — the count stops, because the
+          child was disposed with the branch that made it.
         </div>
       </section>
       <aside id="gui-container"></aside>

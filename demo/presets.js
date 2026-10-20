@@ -43,6 +43,18 @@ const presets = createPresetStore(params, {
   onApply: (name, applied) => log(`${stamp()} applied "${name}" → ${applied.join(", ")}`),
 });
 
+// Editing anything means the look is no longer the named preset, so the name gives way to
+// "custom". Targets rather than values: a preset easing into place is not somebody editing.
+let settling = true;
+effect(() => {
+  params.$keys.forEach((key) => params[key].target());
+  if (settling) {
+    settling = false;
+    return;
+  }
+  presets.markCustom();
+});
+
 const gui = new GUI("Presets", document.querySelector("#gui-container"));
 
 gui.addSection("Look");
@@ -63,26 +75,11 @@ gui.addPresets(presets, {
 });
 
 gui.addSection("JSON");
-// addButtons puts a pair on one row rather than stacking them — the same thing addPresets
-// does with Export and Import above.
-gui.addButtons(null, [
-  {
-    label: "Copy JSON",
-    title: "The full state, ready to paste into a bug report",
-    onClick: async () => {
-      const ok = await copyText(presets.toJSON());
-      log(`${stamp()} ${ok ? "copied the full state" : "could not reach the clipboard"}`);
-    },
-  },
-  {
-    label: "Mark as custom",
-    title: "Call this from your own change handler when values drift from a preset",
-    onClick: () => {
-      presets.markCustom();
-      log(`${stamp()} current preset name reset to "custom"`);
-    },
-  },
-]);
+// The full state as text, ready to paste into a bug report.
+gui.addButton("Copy JSON", async () => {
+  const ok = await copyText(presets.toJSON());
+  log(`${stamp()} ${ok ? "copied the full state" : "could not reach the clipboard"}`);
+});
 
 // --- the thing being styled -------------------------------------------------------------
 const box = document.createElement("div");

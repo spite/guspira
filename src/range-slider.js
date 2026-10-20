@@ -4,7 +4,7 @@
 // boundary like any other inherited property, with dark-theme fallbacks baked in.
 
 import { snap } from "./format.js";
-import { normalizeCurve, assertCurveRange, curveToValue, valueToCurve } from "./curve.js";
+import { normalizeCurve, curveFitsRange, curveToValue, valueToCurve } from "./curve.js";
 
 class RangeSlider extends HTMLElement {
   static formAssociated = true;
@@ -26,9 +26,13 @@ class RangeSlider extends HTMLElement {
     this._syncingAttribute = false;
     this._listening = false;
     this._dragRect = null;
+    this._valueSet = false;
+    this._wasDual = false;
+    this._pointerId = null;
+    this._curveChecked = true;
 
     this._onPointerMove = (e) => this.handleDragMove(e);
-    this._onPointerUp = () => this.handleDragEnd();
+    this._onPointerUp = (e) => this.handleDragEnd(e);
   }
 
   static get observedAttributes() {
@@ -157,17 +161,62 @@ class RangeSlider extends HTMLElement {
     if (!this.hasAttribute("tabindex")) this.setAttribute("tabindex", "0");
     if (!this.hasAttribute("role")) this.setAttribute("role", "slider");
 
-    assertCurveRange(this._curve, this._min, this._max);
+    this._checkCurveSoon();
     this.updateUI();
     this.addEventListeners();
   }
 
-  // Drag tracking is on window (the pointer leaves the element constantly), so it has to
-  // be torn down explicitly or every slider ever created stays reachable.
+  // A drag cannot outlive the element: its pointerup would never be heard.
   disconnectedCallback() {
+    this._stopTracking();
+    this.isDragging = false;
+    this._dragRect = null;
+    if (this.elements) this.elements.container.classList.remove("immediate");
+  }
+
+  // Drag tracking is on window, for the length of a drag and the pointer that started it.
+  _stopTracking() {
     window.removeEventListener("pointermove", this._onPointerMove);
     window.removeEventListener("pointerup", this._onPointerUp);
     window.removeEventListener("pointercancel", this._onPointerUp);
+    this._pointerId = null;
+  }
+
+  // The track in use: a log track over a range it cannot cover falls back to linear.
+  _track() {
+    return curveFitsRange(this._curve, this._min, this._max) ? this._curve : 1;
+  }
+
+  // Said once the assignments have settled, not part-way through them.
+  _checkCurveSoon() {
+    if (!this._curveChecked) return;
+    this._curveChecked = false;
+    queueMicrotask(() => {
+      this._curveChecked = true;
+      if (this.isConnected && !curveFitsRange(this._curve, this._min, this._max)) {
+        console.warn(
+          `[guspira] range-slider: curve "log" needs min and max to be non-zero and the same ` +
+            `sign (given ${this._min} to ${this._max}) — using a linear track instead`
+        );
+      }
+    });
+  }
+
+  // An unusable step is ignored rather than turned into NaN values.
+  _setStep(value) {
+    const step = parseFloat(value);
+    if (Number.isFinite(step) && step > 0) this._step = step;
+  }
+
+  // Until given a value the thumb sits mid-range, and a dual slider spans the range.
+  _defaultValue() {
+    if (this._valueSet) return;
+    if (this.hasAttribute("dual")) {
+      this._valMin = this._min;
+      this._valMax = this._max;
+    } else {
+      this._valMax = snap((this._min + this._max) / 2, this._step, this._min, this._max);
+    }
   }
 
   attributeChangedCallback(name, oldValue, newValue) {
@@ -176,18 +225,22 @@ class RangeSlider extends HTMLElement {
     switch (name) {
       case "min":
         this._min = parseFloat(newValue);
+        this._checkCurveSoon();
         break;
       case "max":
         this._max = parseFloat(newValue);
+        this._checkCurveSoon();
         break;
       case "step":
-        this._step = parseFloat(newValue);
+        this._setStep(newValue);
         break;
       case "curve":
         this._curve = normalizeCurve(newValue);
+        this._checkCurveSoon();
         break;
       case "value":
         if (newValue === null) break;
+        this._valueSet = true;
         if (newValue.includes(",")) {
           const parts = newValue.split(",");
           this._valMin = parseFloat(parts[0]);
@@ -209,19 +262,18 @@ class RangeSlider extends HTMLElement {
       this.elements.container.addEventListener("pointerdown", (e) => this.handleDragStart(e));
       this.addEventListener("keydown", (e) => this.handleKeyDown(e));
     }
-    // The window handlers are tied to being connected, and re-adding the same function
-    // reference is a no-op, so this stays correct across disconnect/reconnect.
-    window.addEventListener("pointermove", this._onPointerMove);
-    window.addEventListener("pointerup", this._onPointerUp);
-    window.addEventListener("pointercancel", this._onPointerUp);
   }
 
   handleDragStart(e) {
-    if (this.hasAttribute("disabled")) return;
+    if (this.hasAttribute("disabled") || e.button !== 0) return;
 
     this.elements.container.classList.add("immediate");
     this.isDragging = true;
-    this.focus();
+    this._pointerId = e.pointerId;
+    window.addEventListener("pointermove", this._onPointerMove);
+    window.addEventListener("pointerup", this._onPointerUp);
+    window.addEventListener("pointercancel", this._onPointerUp);
+    this.focus({ preventScroll: true });
 
     // Measured once here and reused for the whole drag. Reading it per pointermove forces a
     // layout, and the thumb positions written on the previous move guarantee it is dirty —
@@ -260,12 +312,13 @@ class RangeSlider extends HTMLElement {
   }
 
   handleDragMove(e) {
-    if (!this.isDragging) return;
+    if (!this.isDragging || e.pointerId !== this._pointerId) return;
     this.updateValueFromPointer(e);
   }
 
-  handleDragEnd() {
-    if (!this.isDragging) return;
+  handleDragEnd(e) {
+    if (!this.isDragging || (e && e.pointerId !== this._pointerId)) return;
+    this._stopTracking();
     this.isDragging = false;
     this._dragRect = null;
     this.dispatchEvent(new Event("change", { bubbles: true }));
@@ -313,6 +366,7 @@ class RangeSlider extends HTMLElement {
   // Snaps to the step grid and clamps to the range (shared with the panel, so the value
   // shown and the value stored can't disagree), then keeps the handles from crossing.
   applyValue(rawValue) {
+    this._valueSet = true;
     let value = snap(rawValue, this._step, this._min, this._max);
 
     if (this.currentHandle === "min") {
@@ -327,15 +381,16 @@ class RangeSlider extends HTMLElement {
   }
 
   percentageToValue(percentage) {
-    return curveToValue(percentage, this._min, this._max, this._curve);
+    return curveToValue(percentage, this._min, this._max, this._track());
   }
 
   // Returns 0..100: it feeds CSS `left`, which is where it has always gone.
   valueToPercentage(value) {
-    return valueToCurve(value, this._min, this._max, this._curve) * 100;
+    return valueToCurve(value, this._min, this._max, this._track()) * 100;
   }
 
   updateUI() {
+    this._defaultValue();
     if (!this.elements) return;
 
     const dual = this.hasAttribute("dual");
@@ -357,7 +412,11 @@ class RangeSlider extends HTMLElement {
       this.setAttribute("aria-valuemin", this._min);
       this.setAttribute("aria-valuemax", this._max);
     }
-    this.setAttribute("aria-valuenow", dual ? `${this._valMin},${this._valMax}` : this._valMax);
+    // One number, as the role requires; a dual slider reads out both ends as text.
+    this.setAttribute("aria-valuenow", this._valMax);
+    if (dual) this.setAttribute("aria-valuetext", `${this._valMin} to ${this._valMax}`);
+    else if (this._wasDual) this.removeAttribute("aria-valuetext");
+    this._wasDual = dual;
 
     this.updateFormValue();
   }
@@ -381,12 +440,14 @@ class RangeSlider extends HTMLElement {
   // element already has. Without this guard every pointer move repaints the thumbs, rewrites
   // three aria attributes and re-reports the form value a second time, for nothing.
   set value(val) {
+    const given = this._valueSet;
+    this._valueSet = true;
     if (Array.isArray(val)) {
-      if (val[0] === this._valMin && val[1] === this._valMax) return;
+      if (given && val[0] === this._valMin && val[1] === this._valMax) return;
       this._valMin = val[0];
       this._valMax = val[1];
     } else {
-      if (val === this._valMax) return;
+      if (given && val === this._valMax) return;
       this._valMax = val;
     }
     this.updateUI();
@@ -398,6 +459,7 @@ class RangeSlider extends HTMLElement {
 
   set min(value) {
     this._min = parseFloat(value);
+    this._checkCurveSoon();
     this.updateUI();
   }
 
@@ -407,6 +469,7 @@ class RangeSlider extends HTMLElement {
 
   set max(value) {
     this._max = parseFloat(value);
+    this._checkCurveSoon();
     this.updateUI();
   }
 
@@ -415,7 +478,7 @@ class RangeSlider extends HTMLElement {
   }
 
   set step(value) {
-    this._step = parseFloat(value);
+    this._setStep(value);
     this.updateUI();
   }
 
@@ -425,7 +488,7 @@ class RangeSlider extends HTMLElement {
 
   set curve(value) {
     this._curve = normalizeCurve(value);
-    assertCurveRange(this._curve, this._min, this._max);
+    this._checkCurveSoon();
     this.updateUI();
   }
 }

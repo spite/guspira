@@ -20,7 +20,7 @@ function download(filename, text) {
 
 // `params` is a store from createParams. Options:
 //   builtin     { name: partialParams } — curated looks, applied over the current state
-//   storageKey  where user presets live (defaults to the params' key + "-presets")
+//   storageKey  where user presets live; without one they last as long as the page
 //   exclude     keys left out of snapshots
 //   customName  the name shown once values drift from any named preset
 export function createPresetStore(params, options = {}) {
@@ -33,11 +33,20 @@ export function createPresetStore(params, options = {}) {
   } = options;
 
   const subset = params.$persisted.filter((k) => !exclude.includes(k));
-  let user = storageKey ? readStorage(storageKey) : {};
+  // No prototype, so a preset may be called anything, "constructor" included.
+  const user = Object.assign(Object.create(null), storageKey ? readStorage(storageKey) : {});
+  const own = (bag, name) => Object.prototype.hasOwnProperty.call(bag, name);
 
   // The name of the preset in effect. Every applied preset sets it; any other edit is the
   // app's business, but calling markCustom() from a change handler keeps it honest.
   const current = signal(customName);
+
+  const use = (name, values, reported = name) => {
+    const applied = params.$apply(values);
+    current.set(name);
+    if (onApply) onApply(reported, applied);
+    return applied;
+  };
 
   const store = {
     current,
@@ -47,19 +56,19 @@ export function createPresetStore(params, options = {}) {
 
     snapshot: () => params.$snapshot(subset),
 
-    // Takes a preset name (built-in or saved) or a plain object of values.
+    // Takes a built-in or saved preset's name, or an object of values. A built-in wins a shared name.
     apply(nameOrValues) {
       if (nameOrValues === customName) return [];
-      const values =
-        typeof nameOrValues === "string"
-          ? builtin[nameOrValues] || user[nameOrValues]
-          : nameOrValues;
-      if (!values) return [];
-      const applied = params.$apply(values);
-      if (typeof nameOrValues === "string") current.set(nameOrValues);
-      else current.set(customName);
-      if (onApply) onApply(nameOrValues, applied);
-      return applied;
+      const named = typeof nameOrValues === "string";
+      if (named && own(builtin, nameOrValues)) return use(nameOrValues, builtin[nameOrValues]);
+      if (named) return store.load(nameOrValues);
+      if (!nameOrValues) return [];
+      return use(customName, nameOrValues, nameOrValues);
+    },
+
+    // A saved preset by name, whatever it is called.
+    load(name) {
+      return own(user, name) ? use(name, user[name]) : [];
     },
 
     markCustom() {
@@ -78,8 +87,8 @@ export function createPresetStore(params, options = {}) {
       if (storageKey) writeStorage(storageKey, user);
     },
 
-    exportFile(name = "preset") {
-      const values = user[name] || store.snapshot();
+    // Without `values` it is the saved preset of that name, or the current state.
+    exportFile(name = "preset", values = own(user, name) ? user[name] : store.snapshot()) {
       download(`${name}.json`, JSON.stringify(values, null, 2));
     },
 
@@ -92,9 +101,13 @@ export function createPresetStore(params, options = {}) {
         reader.onload = () => {
           try {
             const parsed = JSON.parse(reader.result);
-            const values = parsed && parsed.params ? parsed.params : parsed;
+            // A wrapper only when `params` is itself an object of values: a store is free
+            // to have parameters called `name` or `params`.
+            const inner = parsed && parsed.params;
+            const wrapped = !!inner && typeof inner === "object" && !Array.isArray(inner);
+            const values = wrapped ? inner : parsed;
             const applied = store.apply(values);
-            if (parsed && parsed.name) {
+            if (wrapped && typeof parsed.name === "string" && parsed.name) {
               user[parsed.name] = values;
               if (storageKey) writeStorage(storageKey, user);
               current.set(parsed.name);

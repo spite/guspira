@@ -2,11 +2,12 @@
 // smoke test in test/dist.html exercises whatever is in dist, so it passes just as happily
 // against a stale build. This rebuilds into a temporary directory and compares.
 
+import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
-const root = new URL("..", import.meta.url).pathname;
+const root = fileURLToPath(new URL("..", import.meta.url));
 // Beside dist/ rather than in the system temp: source maps record paths relative to their
 // own directory, so a build at a different depth would differ for that reason alone.
 const out = join(root, ".dist-check");

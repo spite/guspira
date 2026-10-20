@@ -65,7 +65,7 @@ gui.addButton("Apply a good snapshot", () => {
 gui.addSection("Storage");
 gui.addButton("Flush now", () => {
   params.$flush(); // writes are debounced; this forces one
-  log(`${stamp()} $flush() — localStorage now holds the current values`);
+  log(`${stamp()} $flush() — localStorage now holds whatever differs from the defaults`);
   render();
 });
 gui.addButton("Clear stored state", () => {

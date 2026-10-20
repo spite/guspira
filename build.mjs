@@ -39,6 +39,20 @@ const targets = [
   { entry: "src/reactive.js", name: "guspira-reactive.iife", format: "iife", global: "GuspiraReactive" },
 ];
 
+// Shared by the build and the watcher, so a file written by one is the file the other writes.
+const settings = (target) => ({
+  entryPoints: [target.entry],
+  bundle: true,
+  format: target.format,
+  globalName: target.global,
+  // A browser target new enough for the things the source actually uses (static class
+  // fields in the custom element, `??`, private-free classes).
+  target: ["es2022"],
+  charset: "utf8",
+  legalComments: "none",
+  banner: { js: banner },
+});
+
 async function buildAll() {
   await rm(outdir, { recursive: true, force: true });
   await mkdir(outdir, { recursive: true });
@@ -46,18 +60,9 @@ async function buildAll() {
   for (const target of targets) {
     for (const minify of [false, true]) {
       await build({
-        entryPoints: [target.entry],
+        ...settings(target),
         outfile: join(outdir, `${target.name}${minify ? ".min" : ""}.js`),
-        bundle: true,
-        format: target.format,
-        globalName: target.global,
         minify,
-        // A browser target new enough for the things the source actually uses (static class
-        // fields in the custom element, `??`, private-free classes).
-        target: ["es2022"],
-        charset: "utf8",
-        legalComments: "none",
-        banner: { js: banner },
         sourcemap: minify ? true : false,
       });
     }
@@ -114,12 +119,8 @@ async function report() {
 
 if (watch) {
   const ctx = await context({
-    entryPoints: ["src/index.js"],
+    ...settings(targets[0]),
     outfile: join(outdir, "guspira.js"),
-    bundle: true,
-    format: "esm",
-    target: ["es2022"],
-    banner: { js: banner },
   });
   await ctx.watch();
   console.log("watching src/ — writing dist/guspira.js on change");

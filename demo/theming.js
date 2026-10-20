@@ -49,6 +49,26 @@ const THEMES = {
   },
 };
 
+// What .gui-light sets, so the swatches below can follow the class when it is switched on:
+// they are written inline, and an inline value would otherwise outrank the class.
+const LIGHT = {
+  "--gui-bg": "#f4f4f5",
+  "--gui-fg": "#1c1c1e",
+  "--gui-muted": "#6b6b70",
+  "--gui-field-bg": "#ffffff",
+  "--gui-border": "#c9c9cd",
+  "--gui-focus": "#6b6b70",
+  "--gui-accent": "#1c1c1e",
+  "--gui-btn-bg": "#e6e6e9",
+  "--gui-btn-hover": "#dcdce0",
+  "--gui-btn-active": "#cfcfd4",
+  "--gui-track": "#d4d4d8",
+  "--gui-fill": "#3f3f46",
+  "--gui-thumb": "#ffffff",
+  "--gui-thumb-hover": "#f4f4f5",
+  "--gui-check": "#f4f4f5",
+};
+
 const theme = signal("default");
 const light = signal(false);
 
@@ -109,6 +129,14 @@ const COLOUR_DEFAULTS = Object.fromEntries(
   Object.entries(colours).map(([name, sig]) => [name, sig.peek()])
 );
 
+// Re-seeds every colour control from the theme in force, and from .gui-light over it.
+function seedColours() {
+  const t = { ...THEMES[theme()], ...(light() ? LIGHT : {}) };
+  batch(() => {
+    for (const [name, sig] of Object.entries(colours)) sig.set(t[name] || COLOUR_DEFAULTS[name]);
+  });
+}
+
 const gui = new GUI("Theming", document.querySelector("#gui-container"), {
   className: "demo-theming", // any extra class on the container, for page-level styling
   expanded: true, // start unfolded regardless of window width
@@ -118,12 +146,13 @@ gui.addSection("Theme");
 gui.addSelect("Preset theme", theme, Object.keys(THEMES), {
   onChange: () => {
     // Re-seed every colour control from the theme that was just applied.
-    const t = THEMES[theme()];
-    for (const [name, sig] of Object.entries(colours)) sig.set(t[name] || COLOUR_DEFAULTS[name]);
+    light.set(false);
+    seedColours();
   },
 });
 gui.addCheckbox("Light theme class", light, {
   title: "Adds .gui-light — a second set of variable values, nothing more",
+  onChange: () => seedColours(),
 });
 
 gui.addSection("Colours");

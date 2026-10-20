@@ -67,9 +67,9 @@ function draw() {
   const dpr = Math.min(devicePixelRatio || 1, 2);
   const width = canvas.clientWidth;
   const height = canvas.clientHeight;
-  if (canvas.width !== width * dpr) {
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
+  if (canvas.width !== Math.round(width * dpr)) {
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
   }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, width, height);

@@ -3,16 +3,24 @@
 // the type of each value, so a stale save or a hand-edited link can't put a string where a
 // number belongs and send NaN into a shader.
 
-import { signal, tweened, effect, batch } from "./reactive.js";
+import { signal, tweened, effect, batch, untrack } from "./reactive.js";
 import { isHexColor, mixColors } from "./color.js";
 
-// Same shape, not just the same typeof: a [min, max] pair must not be satisfied by a
-// three-element array, which would reach a range slider as a value it cannot represent.
-const sameType = (a, b) => {
-  if (Array.isArray(a) || Array.isArray(b)) {
-    return Array.isArray(a) && Array.isArray(b) && a.length === b.length;
+// Whether a value fits the default: arrays element by element, finite numbers, hex for hex.
+const fits = (value, fallback) => {
+  if (Array.isArray(fallback)) {
+    return (
+      Array.isArray(value) &&
+      value.length === fallback.length &&
+      value.every((item, i) => fits(item, fallback[i]))
+    );
   }
-  return typeof a === typeof b;
+  if (Array.isArray(value)) return false;
+  if (typeof fallback === "number") {
+    return typeof value === "number" && (Number.isFinite(value) || !Number.isFinite(fallback));
+  }
+  if (isHexColor(fallback)) return isHexColor(value);
+  return typeof value === typeof fallback;
 };
 
 // Parses a URL value against the type of its default: "0.4" -> 0.4, "true" -> true,
@@ -37,7 +45,8 @@ function coerce(raw, fallback) {
 
 export function readStorage(key) {
   try {
-    return JSON.parse(localStorage.getItem(key)) || {};
+    const value = JSON.parse(localStorage.getItem(key));
+    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
   } catch {
     return {};
   }
@@ -86,7 +95,7 @@ export function createParams(defaults, options = {}) {
     }
   }
 
-  // What *can* travel is decided by the value — numbers ease, hex colours ease through OKLab,
+  // What *can* travel is decided by the default — numbers ease, hex colours ease through OKLab,
   // arrays of numbers ease a component at a time, and anything else has no meaningful path
   // between two of them. What *should* is `only` and `skip`. A parameter that travels is a
   // tweened signal; everything else is a plain one, and both answer `.target()`, so nothing
@@ -104,16 +113,17 @@ export function createParams(defaults, options = {}) {
     const wanted = (only ? only.includes(key) : true) && !skip.includes(key);
     if (!wanted) return signal(value);
     const custom = interpolate[key];
+    const kind = defaults[key];
     if (custom) return tweened(value, duration, curve, custom);
-    if (typeof value === "number") return tweened(value, duration, curve);
-    if (isHexColor(value)) return tweened(value, duration, curve, mixColors);
-    if (numericArray(value)) return tweened(value, duration, curve, lerpArray);
+    if (typeof kind === "number") return tweened(value, duration, curve);
+    if (isHexColor(kind)) return tweened(value, duration, curve, mixColors);
+    if (numericArray(kind)) return tweened(value, duration, curve, lerpArray);
     return signal(value);
   };
 
   const params = {};
   for (const key of keys) {
-    const value = key in stored && sameType(stored[key], defaults[key]) ? stored[key] : defaults[key];
+    const value = key in stored && fits(stored[key], defaults[key]) ? stored[key] : defaults[key];
     params[key] = easedSignal(key, value);
   }
 
@@ -132,7 +142,7 @@ export function createParams(defaults, options = {}) {
     const applied = [];
     batch(() => {
       for (const [key, value] of Object.entries(values)) {
-        if (!(key in params) || !sameType(value, defaults[key])) continue;
+        if (!(key in params) || !fits(value, defaults[key])) continue;
         params[key].set(value);
         applied.push(key);
       }
@@ -146,14 +156,18 @@ export function createParams(defaults, options = {}) {
     batch(() => subset.forEach((key) => params[key].set(defaults[key])));
   };
 
+  const atDefault = (key) => String(params[key].target()) === String(defaults[key]);
+
   let timer = null;
   let flush = () => {};
   let stop = () => {};
 
   if (storageKey) {
+    // Only what differs from the defaults is kept, so a changed default reaches untouched controls.
     flush = () => {
       clearTimeout(timer);
-      writeStorage(storageKey, snapshot());
+      timer = null;
+      writeStorage(storageKey, snapshot(persisted.filter((key) => !atDefault(key))));
     };
 
     // One effect per key rather than a single effect reading all of them. An effect
@@ -167,22 +181,30 @@ export function createParams(defaults, options = {}) {
       clearTimeout(timer);
       timer = setTimeout(flush, delay);
     };
-    const stops = persisted.map((key) =>
-      effect(() => {
-        params[key].target(); // the destination, so an animation does not re-trigger the write
-        schedulePersist();
-      })
+    // Nothing is written until something changes. Untracked, so the store outlives an effect it was built in.
+    let loaded = false;
+    const stops = untrack(() =>
+      persisted.map((key) =>
+        effect(() => {
+          params[key].target(); // the destination, so an animation does not re-trigger the write
+          if (loaded) schedulePersist();
+        })
+      )
     );
+    loaded = true;
 
-    // A tab closing or being backgrounded on mobile may never get another frame, so the
-    // pending write is forced out here rather than lost. Guarded so the module still works
+    // A tab closing or being backgrounded on mobile may never get another frame, so a write
+    // still waiting is forced out here rather than lost. Guarded so the module still works
     // where there is no window to listen on.
-    const onHide = () => flush();
+    const onHide = () => {
+      if (timer !== null) flush();
+    };
     const canListen = typeof addEventListener === "function";
     if (canListen) addEventListener("pagehide", onHide);
 
     stop = () => {
       clearTimeout(timer);
+      timer = null;
       stops.forEach((s) => s());
       if (canListen) removeEventListener("pagehide", onHide);
     };
@@ -203,7 +225,10 @@ export function createParams(defaults, options = {}) {
         if (params[key].target !== params[key]) params[key].duration = ms;
       }
     },
+    // Drops the save and any write still waiting, so a reload comes back to the defaults.
     $clear: () => {
+      clearTimeout(timer);
+      timer = null;
       if (storageKey) {
         try {
           localStorage.removeItem(storageKey);
@@ -215,8 +240,8 @@ export function createParams(defaults, options = {}) {
     $toQuery: () => {
       const query = new URLSearchParams();
       for (const key of persisted) {
+        if (atDefault(key)) continue;
         const value = params[key].target();
-        if (sameType(value, defaults[key]) && String(value) === String(defaults[key])) continue;
         query.set(key, Array.isArray(value) ? value.join(",") : String(value));
       }
       return query.toString();
