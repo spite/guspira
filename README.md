@@ -82,8 +82,8 @@ option types beside the functions that take them. `document.createElement("range
 `dist/guspira.iife.min.js` puts the same API on a `Guspira` global, with nothing to install:
 
 ```html
-<link rel="stylesheet" href="https://unpkg.com/guspira@0.1.1/dist/guspira.min.css" />
-<script src="https://unpkg.com/guspira@0.1.1/dist/guspira.iife.min.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/guspira@0.2.0/dist/guspira.min.css" />
+<script src="https://unpkg.com/guspira@0.2.0/dist/guspira.iife.min.js"></script>
 <script>
   const { GUI, signal } = Guspira;
 
@@ -97,7 +97,7 @@ Or as a module, straight from the CDN — no bundler, no install:
 
 ```html
 <script type="module">
-  import { GUI, signal } from "https://cdn.jsdelivr.net/npm/guspira@0.1.1/dist/guspira.min.js";
+  import { GUI, signal } from "https://cdn.jsdelivr.net/npm/guspira@0.2.0/dist/guspira.min.js";
 </script>
 ```
 

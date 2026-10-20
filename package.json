@@ -1,6 +1,6 @@
 {
   "name": "guspira",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "A reactive GUI toolkit for creative coding sketches — signals, sliders, tabs, presets.",
   "type": "module",
   "main": "./dist/guspira.js",
@@ -33,6 +33,7 @@
     "css/gui.css",
     "dist",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "sideEffects": [
