@@ -1,5 +1,5 @@
 {
-  "version": "0.2.0",
+  "version": "0.2.1",
   "files": [
     {
       "file": "guspira-reactive.iife.js",
@@ -24,7 +24,7 @@
     {
       "file": "guspira.css",
       "raw": 11667,
-      "gzip": 2825
+      "gzip": 2826
     },
     {
       "file": "guspira.iife.js",

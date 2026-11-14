@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1
+
+### Changed
+
+- The stats graph's canvas carries a `skip-capture` attribute, so capture tools can leave it
+  out of recordings.
+
 ## 0.2.0
 
 ### Added
