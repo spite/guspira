@@ -992,7 +992,7 @@ var StatsGraph = class extends HTMLElement {
             font-variant-numeric: tabular-nums;
           }
         </style>
-        <div class="plot"><canvas></canvas></div>
+        <div class="plot"><canvas skip-capture></canvas></div>
         <div class="legend"></div>`;
       this.canvas = this.shadowRoot.querySelector("canvas");
       this.legendEl = this.shadowRoot.querySelector(".legend");

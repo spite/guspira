@@ -28,18 +28,18 @@
     },
     {
       "file": "guspira.iife.js",
-      "raw": 121564,
-      "gzip": 30769
+      "raw": 121577,
+      "gzip": 30775
     },
     {
       "file": "guspira.iife.min.js",
-      "raw": 59585,
-      "gzip": 19835
+      "raw": 59598,
+      "gzip": 19842
     },
     {
       "file": "guspira.js",
-      "raw": 113867,
-      "gzip": 30004
+      "raw": 113880,
+      "gzip": 30010
     },
     {
       "file": "guspira.min.css",
@@ -48,8 +48,8 @@
     },
     {
       "file": "guspira.min.js",
-      "raw": 59068,
-      "gzip": 19604
+      "raw": 59081,
+      "gzip": 19612
     }
   ]
 }
